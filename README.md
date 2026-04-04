@@ -345,10 +345,10 @@ Kronolojik Bölme (data leakage önlenir):
 │   │   └── Ara Rapor.pdf
 │   ├── reports
 │   └── visuals
-├── src
-│   │
-│   └── notebooks
-└── tree.txt
+└── src
+    │
+    └── notebooks
+
 ```
 
 ---
