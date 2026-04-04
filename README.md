@@ -384,5 +384,5 @@ Bu proje **akademik amaçlıdır**. Herhangi bir finansal tavsiye niteliği taş
 ---
 
 <div align="center">
-  <sub>Veri Madenciliği Yüksek Lisans Projesi · Nisan 2026</sub>
+  <sub>Veri Madenciliği Lisans Projesi · Nisan 2026</sub>
 </div>
