@@ -1,8 +1,8 @@
 # 📈 Kripto Para Fiyat Tahmini
 ### Çok Kaynaklı API Entegrasyonu ile Kapsamlı Finansal Veri Toplama ve Makine Öğrenmesi Tabanlı Fiyat Tahmini
 
-> **Yüksek Lisans — Veri Madenciliği Dersi Projesi**  
-> Durum: `Aşama 1–4 Tamamlandı` · `Aşama 5 (Modelleme) Devam Ediyor`
+> **Lisans — Veri Madenciliği Dersi Projesi**  
+> Durum: `Aşama 1–3 Tamamlandı` · `Aşama 4  Devam Ediyor`
 
 ---
 
@@ -345,10 +345,10 @@ Kronolojik Bölme (data leakage önlenir):
 │   │   └── Ara Rapor.pdf
 │   ├── reports
 │   └── visuals
-├── src
-│   │
-│   └── notebooks
-└── tree.txt
+└── src
+    │
+    └── notebooks
+
 ```
 
 ---
@@ -384,5 +384,5 @@ Bu proje **akademik amaçlıdır**. Herhangi bir finansal tavsiye niteliği taş
 ---
 
 <div align="center">
-  <sub>Veri Madenciliği Yüksek Lisans Projesi · Nisan 2026</sub>
+  <sub>Veri Madenciliği Lisans Projesi · Nisan 2026</sub>
 </div>
