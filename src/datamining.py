@@ -1,589 +1,1051 @@
+import pandas as pd
 import requests
 import time
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
-import json
+from datetime import datetime, timedelta
 import os
+import json
+import numpy as np
+import warnings
+import signal
+import sys
+from urllib.parse import quote
+import random
+from typing import Optional, Tuple, List, Dict
+import threading
+import asyncio
+from multiprocessing import Pool, cpu_count
 
-# Coin isimlerini Yahoo Finance sembollerine dönüştüren eşleme tablosu
-COIN_TO_YAHOO_SYMBOL = {
-    "Bitcoin": "BTC-USD",
-    "Ethereum": "ETH-USD",
-    "BNB": "BNB-USD",
-    "Solana": "SOL-USD",
-    "XRP": "XRP-USD",
-    "Dogecoin": "DOGE-USD",
-    "Toncoin": "TON-USD",
-    "Cardano": "ADA-USD",
-    "Shiba Inu": "SHIB-USD",
-    "Avalanche": "AVAX-USD",
-    "Polkadot": "DOT-USD",
-    "TRON": "TRX-USD",
-    "Chainlink": "LINK-USD",
-    "Polygon": "MATIC-USD",
-    "Internet Computer": "ICP-USD",
-    "Litecoin": "LTC-USD",
-    "Uniswap": "UNI-USD",
-    "Bitcoin Cash": "BCH-USD"
-}
+warnings.filterwarnings('ignore')
 
-# Filtrelenecek terimler - Daha güvenli ve spesifik liste
-FILTER_TERMS = {
-    # Wrapped/Bridged versions
-    "Wrapped Bitcoin", "Wrapped Ethereum", "Wrapped BNB", "Wrapped", "Bridged",
-    "Wormhole", "Portal Bitcoin", "Portal Ethereum", "Portal",
-    
-    # Stablecoins (tam isimlerle)
-    "Tether", "USD Coin", "Dai Stablecoin", "First Digital USD", "TrueUSD", 
-    "Pax Dollar", "USDD", "Frax", "Binance USD", "Gemini Dollar", "PayPal USD",
-    
-    # Fiat currencies  
-    "Euro Coin", "JPY Coin", "GBP Coin", "AUD Coin", "TerraUSD",
-    
-    # Specific blockchain versions
-    "Binance-Peg", "BSC Token", "Ethereum Classic", 
-    
-    # Test/Beta tokens
-    "Testnet", "Test Token", "Beta", 
-    
-    # Pool/Vault tokens
-    "Liquidity Pool", "Vault Token", "Receipt Token", "IOU Token",
-    
-    # Staked versions (tam isimler)
-    "Staked Ether", "Staked Ethereum", "Staked BNB", "Staked Solana",
-    "Staked Cardano", "Staked Polkadot", "Staked Cosmos", "Staked",
-    
-    # Tokenized versions
-    "Tokenized Bitcoin", "Tokenized Ethereum", "Tokenized"
-}
-
-# Bilinen Yahoo Finance eşlemeleri
-YF_MAPPING = {
-    'TETHER-USD': 'USDT-USD',
-    'STELLAR-USD': 'XLM-USD',
-    'CURVE-USD': 'CRV-USD',
-    'HEDERA-USD': 'HBAR-USD',
-    'ZCASH-USD': 'ZEC-USD',
-    'INJECTIVE-USD': 'INJ-USD',
-    'FILECOIN-USD': 'FIL-USD',
-    'MONERO-USD': 'XMR-USD',
-    'COSMOS-USD': 'ATOM-USD',
-    'ALGORAND-USD': 'ALGO-USD',
-    'THORCHAIN-USD': 'RUNE-USD',
-    'OPTIMISM-USD': 'OP-USD',
-    'ARBITRUM-USD': 'ARB-USD',
-    'SPARK-USD': 'FLR-USD',
-    'PEPE-USD': 'PEPE-USD',
-    'CHAINLINK-USD': 'LINK-USD',
-    'INTERNET-USD': 'ICP-USD',
-    'NEAR-USD': 'NEAR-USD',
-    'APTOS-USD': 'APT-USD',
-    'ETHEREUM-USD': 'ETH-USD',
-    'BITCOIN-USD': 'BTC-USD'
-}
-
-class ThreadSafeCounter:
-    """Thread-safe sayaç ve rate limiter"""
-    def __init__(self):
+class OptimizedFinancialScraper:
+    def __init__(self, min_days_required=1001, max_workers=5, request_timeout=30):
+        self.min_days_required = min_days_required
+        self.max_workers = max_workers
+        self.request_timeout = request_timeout
+        self.session = self._create_session()
+        self.interrupt_flag = False
         self.lock = threading.Lock()
-        self.processed = 0
-        self.successful = 0
-        self.failed = 0
-        self.rate_limited = 0
-        self.last_request_times = []
         
-    def increment_processed(self):
-        with self.lock:
-            self.processed += 1
-            
-    def increment_successful(self):
-        with self.lock:
-            self.successful += 1
-            
-    def increment_failed(self):
-        with self.lock:
-            self.failed += 1
-            
-    def increment_rate_limited(self):
-        with self.lock:
-            self.rate_limited += 1
-    
-    def get_stats(self):
-        with self.lock:
-            return {
-                'processed': self.processed,
-                'successful': self.successful,
-                'failed': self.failed,
-                'rate_limited': self.rate_limited
-            }
-    
-    def should_wait(self, max_requests_per_minute=20):
-        """Rate limiting kontrolü"""
-        with self.lock:
-            now = time.time()
-            # Son 1 dakikadaki istekleri temizle
-            self.last_request_times = [t for t in self.last_request_times if now - t < 60]
-            
-            if len(self.last_request_times) >= max_requests_per_minute:
-                return True
-            
-            self.last_request_times.append(now)
-            return False
-
-class CacheManager:
-    """Sonuçları önbelleğe alan ve kaydeden sınıf"""
-    def __init__(self, cache_file="yahoo_symbol_cache.json"):
-        self.cache_file = cache_file
-        self.cache = self.load_cache()
-        self.lock = threading.Lock()
-    
-    def load_cache(self):
-        """Önbelleği dosyadan yükle"""
-        if os.path.exists(self.cache_file):
-            try:
-                with open(self.cache_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-    
-    def save_cache(self):
-        """Önbelleği dosyaya kaydet"""
-        with self.lock:
-            try:
-                with open(self.cache_file, 'w', encoding='utf-8') as f:
-                    json.dump(self.cache, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                print(f"Cache kaydetme hatası: {e}")
-    
-    def get(self, key):
-        """Cache'den değer al"""
-        with self.lock:
-            return self.cache.get(key)
-    
-    def set(self, key, value):
-        """Cache'e değer ekle"""
-        with self.lock:
-            self.cache[key] = value
-
-def is_real_coin(coin_name):
-    """Filtre listesindeki terimleri içermeyen gerçek coin'leri kontrol eder"""
-    if not coin_name:
-        return False
+        # Interrupt handler
+        signal.signal(signal.SIGINT, self._signal_handler)
         
-    coin_name_clean = coin_name.strip()
-    
-    # Debug: Önemli coinlerin filtrelenmesini önle
-    important_coins = ["CARDANO", "BITCOIN", "ETHEREUM", "SOLANA", "XRP", "DOGECOIN", 
-                      "BNB", "TONCOIN", "AVALANCHE", "POLKADOT", "TRON", "CHAINLINK",
-                      "POLYGON", "LITECOIN", "UNISWAP", "BITCOIN CASH", "SHIBA INU",
-                      "INTERNET COMPUTER", "NEAR PROTOCOL", "APTOS", "ARBITRUM",
-                      "OPTIMISM", "MANTLE", "FILECOIN", "HEDERA", "COSMOS"]
-    
-    if any(important in coin_name_clean.upper() for important in important_coins):
-        return True
-    
-    # Tam eşleşme kontrolü (daha güvenli)
-    for term in FILTER_TERMS:
-        if term.upper() == coin_name_clean.upper():  # Tam eşleşme
-            return False
-        if term.upper() in coin_name_clean.upper() and len(term) > 3:  # Uzun terimler için kısmi eşleşme
-            return False
-    
-    # Stablecoin kontrolü (daha spesifik)
-    stablecoin_patterns = [
-        " USD", "USD ", "(USD)", "-USD-", 
-        " EUR", "EUR ", "(EUR)",
-        " JPY", "JPY ", "(JPY)"
-    ]
-    
-    for pattern in stablecoin_patterns:
-        if pattern in coin_name_clean.upper():
-            return False
-    
-    return True
-
-def get_real_top_coins(limit=300):
-    """CoinGecko API'sinden gerçek coin listesi alır - Çoklu sayfa desteği"""
-    all_coins = []
-    page = 1
-    per_page = 100  # CoinGecko maksimum per_page değeri
-    max_attempts = 5
-    
-    print(f"🔍 {limit} coin için CoinGecko API'den veri çekiliyor...")
-    
-    while len(all_coins) < limit and page <= 10:  # Maksimum 10 sayfa kontrol et
-        url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {
-            "vs_currency": "usd",
-            "order": "market_cap_desc",  # Market cap sıralaması kullan
-            "per_page": per_page,
-            "page": page,
-            "sparkline": "false",
-            "locale": "en"
-        }
-
-        print(f"  📄 Sayfa {page} çekiliyor... (Hedef: {limit - len(all_coins)} coin kaldı)")
+    def _signal_handler(self, signum, frame):
+        """Graceful shutdown handler"""
+        print("\n İşlem durduruldu! Mevcut veriler kaydediliyor...")
+        self.interrupt_flag = True
         
-        for attempt in range(max_attempts):
+    def _create_session(self) -> requests.Session:
+        """Optimized session creation with better retry strategy"""
+        session = requests.Session()
+        
+        # Premium user agents for better success rate
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ]
+        
+        session.headers.update({
+            'User-Agent': random.choice(user_agents),
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9,tr;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none'
+        })
+        
+        # Enhanced connection pooling
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=15,
+            pool_maxsize=30,
+            max_retries=3
+        )
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        
+        return session
+    
+    def _safe_request(self, url: str, params: dict = None, headers: dict = None, retries: int = 5) -> Optional[requests.Response]:
+        """Enhanced safe HTTP request with exponential backoff"""
+        for attempt in range(retries):
             try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
+                if self.interrupt_flag:
+                    return None
                 
-                response = requests.get(url, params=params, headers=headers, timeout=30)
+                # Dynamic User-Agent rotation
+                if attempt > 0:
+                    self.session.headers['User-Agent'] = random.choice([
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+                        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    ])
                 
-                if response.status_code == 429:
-                    wait_time = 65 + (attempt * 10)
-                    print(f"    ⏳ Rate limit (429). {wait_time} saniye bekleniyor... (Deneme {attempt + 1})")
+                response = self.session.get(
+                    url, 
+                    params=params, 
+                    headers=headers or {}, 
+                    timeout=self.request_timeout,
+                    verify=True,
+                    allow_redirects=True
+                )
+                
+                if response.status_code == 200:
+                    return response
+                elif response.status_code == 429:  # Rate limit
+                    wait_time = min(2 ** attempt, 30)  # Max 30 seconds
+                    print(f" Rate limit, {wait_time}s bekleniyor...")
                     time.sleep(wait_time)
                     continue
-                    
-                if response.status_code != 200:
-                    print(f"    ❌ HTTP {response.status_code} hatası. Tekrar deneniyor...")
-                    time.sleep(5 * (attempt + 1))
-                    continue
-                    
-                data = response.json()
-                
-                if not data:
-                    print(f"    ⚠️  Sayfa {page} boş, sonlandırılıyor.")
-                    break
-                
-                # DEBUG: İlk birkaç coin'i kontrol et
-                if page == 1:
-                    print("    🔍 İlk 10 coin (debug):")
-                    for i, coin in enumerate(data[:10]):
-                        coin_name = coin.get("name", "")
-                        market_cap_rank = coin.get("market_cap_rank", "N/A")
-                        is_valid = is_real_coin(coin_name)
-                        print(f"      {market_cap_rank:2}. {coin_name} -> {'✅' if is_valid else '❌'}")
-                
-                # Filtreleme uygula
-                page_coins = []
-                for coin in data:
-                    coin_name = coin.get("name", "")
-                    market_cap_rank = coin.get("market_cap_rank", None)
-                    
-                    if coin_name and is_real_coin(coin_name):
-                        # Ek kontroller
-                        if not coin_name.startswith(("Wrapped ", "Staked ", "Bridged ")):
-                            page_coins.append({
-                                'name': coin_name,
-                                'rank': market_cap_rank,
-                                'symbol': coin.get('symbol', '').upper()
-                            })
-                
-                all_coins.extend([coin['name'] for coin in page_coins])
-                print(f"    ✅ Sayfa {page}: {len(page_coins)} geçerli coin bulundu (Toplam: {len(all_coins)})")
-                
-                # Debug: Cardano var mı kontrol et
-                cardano_found = any(coin['name'].upper() == 'CARDANO' for coin in page_coins)
-                if cardano_found:
-                    print(f"    🎯 CARDANO bulundu! Sayfa {page}")
-                
-                # Hedef coin sayısına ulaştık mı?
-                if len(all_coins) >= limit:
-                    print(f"    🎯 Hedef {limit} coin sayısına ulaşıldı!")
-                    break
-                
-                # Sayfa arası nazik bekleme
-                time.sleep(2)
-                break
-                
-            except requests.exceptions.RequestException as e:
-                print(f"    ❌ İstek hatası (Deneme {attempt + 1}): {e}")
-                if attempt < max_attempts - 1:
-                    time.sleep(10 * (attempt + 1))
+                elif response.status_code in [502, 503, 504]:  # Server errors
+                    wait_time = min(2 ** attempt, 15)
+                    print(f" Server hatası {response.status_code}, {wait_time}s bekleniyor...")
+                    time.sleep(wait_time)
                     continue
                 else:
-                    print(f"    💀 Sayfa {page} için tüm denemeler başarısız.")
-                    break
-            except (KeyError, ValueError, json.JSONDecodeError) as e:
-                print(f"    ❌ JSON parse hatası: {e}")
-                break
-        else:
-            # For döngüsü break ile kırılmadıysa (tüm denemeler başarısız)
-            break
-        
-        page += 1
-    
-    # Sonuçları sınırla ve döndür
-    result_coins = all_coins[:limit]
-    print(f"✅ Toplam {len(result_coins)} geçerli coin bulundu.")
-    
-    if len(result_coins) < limit:
-        print(f"⚠️  Hedeflenen {limit} coin'den sadece {len(result_coins)} tanesi bulunabildi.")
-    
-    # İlk 15 coin'i göster (Cardano'yu bulmak için)
-    if result_coins:
-        print("📋 İlk 15 coin:")
-        for i, coin in enumerate(result_coins[:15], 1):
-            print(f"  {i:2d}. {coin}")
-        
-        # Cardano var mı kontrol et
-        if 'Cardano' in result_coins:
-            cardano_index = result_coins.index('Cardano') + 1
-            print(f"🎯 CARDANO bulundu! Liste pozisyonu: {cardano_index}")
-        else:
-            print("❌ CARDANO bulunamadı!")
-    
-    return result_coins
-
-def convert_to_yahoo_symbols(coin_names):
-    """Coin isimlerini Yahoo Finance sembollerine dönüştürür"""
-    yahoo_symbols = []
-    for name in coin_names:
-        symbol = COIN_TO_YAHOO_SYMBOL.get(name, f"{name.split()[0].upper()}-USD")
-        yahoo_symbols.append(symbol)
-    return yahoo_symbols
-
-def yf_best_match_worker(symbol_data, counter, cache_manager):
-    """Thread worker fonksiyonu"""
-    symbol, thread_id = symbol_data
-    
-    # Cache kontrolü
-    cached_result = cache_manager.get(symbol)
-    if cached_result:
-        counter.increment_processed()
-        counter.increment_successful()
-        print(f"[T{thread_id}] [Cache] {symbol} -> {cached_result}")
-        return cached_result
-    
-    # Bilinen eşlemeler kontrolü
-    if symbol in YF_MAPPING:
-        result = YF_MAPPING[symbol]
-        cache_manager.set(symbol, result)
-        counter.increment_processed()
-        counter.increment_successful()
-        print(f"[T{thread_id}] [Known] {symbol} -> {result}")
-        return result
-    
-    # Rate limiting kontrolü
-    if counter.should_wait():
-        wait_time = 60 + (thread_id * 2)  # Thread ID'ye göre farklı bekleme
-        print(f"[T{thread_id}] Rate limit - {wait_time} saniye bekleniyor...")
-        time.sleep(wait_time)
-    
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={symbol}"
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        try:
-            headers = {
-                'User-Agent': f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (Thread-{thread_id})'
-            }
-            
-            response = requests.get(url, timeout=15, headers=headers)
-            
-            if response.status_code == 429:
-                counter.increment_rate_limited()
-                wait_time = 30 * (attempt + 1) + (thread_id * 5)
-                print(f"[T{thread_id}] [429] {symbol}: {wait_time}s bekleniyor (Deneme {attempt + 1})")
-                time.sleep(wait_time)
-                continue
-            
-            if response.status_code != 200:
-                print(f"[T{thread_id}] [HTTP {response.status_code}] {symbol}")
-                if attempt == max_retries - 1:
-                    counter.increment_failed()
-                    return symbol
-                time.sleep(5 + thread_id)
-                continue
+                    print(f" HTTP {response.status_code} for {url}")
+                    
+            except requests.exceptions.Timeout:
+                print(f" Timeout at attempt {attempt + 1}")
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+            except requests.exceptions.RequestException as e:
+                if attempt == retries - 1:
+                    print(f" Request failed after {retries} attempts: {str(e)}")
+                    return None
+                time.sleep(min(2 ** attempt, 10))
                 
-            data = response.json()
-            quotes = data.get("quotes", [])
+        return None
+    
+    # Enhanced Yahoo Finance with multiple endpoints
+    def _get_yahoo_finance_data(self, symbol: str, days: int = 1500) -> Tuple[Optional[pd.DataFrame], str]:
+        """Enhanced Yahoo Finance with multiple fallback endpoints"""
+        try:
+            end_date = datetime.now() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
             
-            if quotes and len(quotes) > 0:
-                found_symbol = quotes[0].get("symbol")
-                if found_symbol:
-                    cache_manager.set(symbol, found_symbol)
-                    counter.increment_processed()
-                    counter.increment_successful()
-                    print(f"[T{thread_id}] [OK] {symbol} -> {found_symbol}")
-                    return found_symbol
+            # Multiple Yahoo endpoints with different query parameters
+            endpoint_configs = [
+                {
+                    "url": "https://query1.finance.yahoo.com/v8/finance/chart/{}",
+                    "params": {
+                        'period1': int(start_date.timestamp()),
+                        'period2': int(end_date.timestamp()),
+                        'interval': '1d',
+                        'includePrePost': 'false',
+                        'events': 'div%2Csplits'
+                    }
+                },
+                {
+                    "url": "https://query2.finance.yahoo.com/v8/finance/chart/{}",
+                    "params": {
+                        'period1': int(start_date.timestamp()),
+                        'period2': int(end_date.timestamp()),
+                        'interval': '1d',
+                        'includePrePost': 'false'
+                    }
+                },
+                {
+                    "url": "https://finance.yahoo.com/quote/{}/history",
+                    "params": {
+                        'period1': int(start_date.timestamp()),
+                        'period2': int(end_date.timestamp()),
+                        'interval': '1d',
+                        'filter': 'history',
+                        'frequency': '1d'
+                    }
+                }
+            ]
             
-            counter.increment_failed()
-            print(f"[T{thread_id}] [Not Found] {symbol}")
-            return symbol
+            for config in endpoint_configs:
+                if self.interrupt_flag:
+                    break
+                    
+                url = config["url"].format(symbol)
+                params = config["params"]
+                
+                # Add random delay to avoid rate limiting
+                time.sleep(random.uniform(0.1, 0.3))
+                
+                response = self._safe_request(url, params)
+                if not response:
+                    continue
+                    
+                try:
+                    data = response.json()
+                    
+                    if 'chart' in data and data['chart']['result'] and len(data['chart']['result']) > 0:
+                        result = data['chart']['result'][0]
+                        
+                        if 'timestamp' not in result or not result['timestamp']:
+                            continue
+                        
+                        timestamps = result['timestamp']
+                        dates = [datetime.fromtimestamp(ts).strftime('%Y-%m-%d') for ts in timestamps]
+                        
+                        indicators = result.get('indicators', {})
+                        quote = indicators.get('quote', [{}])[0] if indicators.get('quote') else {}
+                        
+                        # Handle adjusted close if available
+                        adjclose = indicators.get('adjclose', [{}])[0] if indicators.get('adjclose') else {}
+                        
+                        df = pd.DataFrame({
+                            'Date': dates,
+                            'Open': quote.get('open', [None] * len(dates)),
+                            'High': quote.get('high', [None] * len(dates)),
+                            'Low': quote.get('low', [None] * len(dates)),
+                            'Close': adjclose.get('adjclose', quote.get('close', [None] * len(dates))),
+                            'Volume': quote.get('volume', [None] * len(dates)),
+                            'Symbol': symbol
+                        })
+                        
+                        # Enhanced data cleaning
+                        df = df.dropna(subset=['Close'])
+                        df['Date'] = pd.to_datetime(df['Date'])
+                        df = df.sort_values('Date').reset_index(drop=True)
+                        
+                        # Remove invalid data points
+                        df = df[df['Close'] > 0]
+                        
+                        if len(df) >= 50:  # Minimum reasonable data
+                            return df, f"Yahoo: {len(df)} gün (gerçek)"
+                        
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    continue
             
-        except requests.exceptions.Timeout:
-            print(f"[T{thread_id}] [Timeout] {symbol} (Deneme {attempt + 1})")
-            if attempt < max_retries - 1:
-                time.sleep(10 + thread_id * 2)
-                continue
+            return None, "Yahoo: Tüm endpoint'ler başarısız"
+            
         except Exception as e:
-            print(f"[T{thread_id}] [Error] {symbol}: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(5 + thread_id)
+            return None, f"Yahoo: {str(e)}"
+    
+    def _get_enhanced_coingecko_data(self, symbol: str, days: int = 1500) -> Tuple[Optional[pd.DataFrame], str]:
+        """Enhanced CoinGecko with pro endpoints and better error handling"""
+        try:
+            if not self._is_crypto_symbol(symbol):
+                return None, "CoinGecko: Kripto değil"
+            
+            coin_id = self._convert_to_coingecko_id(symbol)
+            if not coin_id:
+                return None, "CoinGecko: ID bulunamadı"
+            
+            # CoinGecko allows up to 365 days for free tier, but we can make multiple requests
+            max_days_per_request = 365
+            
+            endpoint_configs = [
+                {
+                    "url": f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc",
+                    "params": {
+                        'vs_currency': 'usd',
+                        'days': min(days, max_days_per_request)
+                    }
+                },
+                {
+                    "url": f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
+                    "params": {
+                        'vs_currency': 'usd',
+                        'days': min(days, max_days_per_request),
+                        'interval': 'daily'
+                    }
+                },
+                {
+                    "url": f"https://pro-api.coingecko.com/api/v3/coins/{coin_id}/ohlc",
+                    "params": {
+                        'vs_currency': 'usd',
+                        'days': min(days, 1000),  # Pro allows more
+                        'x_cg_pro_api_key': 'demo'  # Replace with real key if available
+                    }
+                }
+            ]
+            
+            for config in endpoint_configs:
+                if self.interrupt_flag:
+                    break
+                    
+                # Add delay between requests
+                time.sleep(random.uniform(0.5, 1.0))
+                
+                response = self._safe_request(config["url"], config["params"])
+                if not response:
+                    continue
+                    
+                try:
+                    data = response.json()
+                    
+                    if 'ohlc' in config["url"] and isinstance(data, list) and len(data) > 0:
+                        df_data = []
+                        for item in data:
+                            if len(item) >= 5:
+                                timestamp = item[0] / 1000
+                                date = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                                
+                                df_data.append({
+                                    'Date': date,
+                                    'Open': float(item[1]),
+                                    'High': float(item[2]),
+                                    'Low': float(item[3]),
+                                    'Close': float(item[4]),
+                                    'Volume': 0,
+                                    'Symbol': symbol
+                                })
+                        
+                        if df_data:
+                            df = pd.DataFrame(df_data)
+                            df['Date'] = pd.to_datetime(df['Date'])
+                            df = df.sort_values('Date').reset_index(drop=True)
+                            return df, f"CoinGecko OHLC: {len(df)} gün (gerçek)"
+                    
+                    elif 'market_chart' in config["url"] and 'prices' in data and data['prices']:
+                        df_data = []
+                        prices = data['prices']
+                        volumes = data.get('total_volumes', [])
+                        
+                        for i, price_item in enumerate(prices):
+                            timestamp = price_item[0] / 1000
+                            date = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                            close_price = float(price_item[1])
+                            volume = float(volumes[i][1]) if i < len(volumes) else 0
+                            
+                            df_data.append({
+                                'Date': date,
+                                'Open': close_price,
+                                'High': close_price,
+                                'Low': close_price,
+                                'Close': close_price,
+                                'Volume': volume,
+                                'Symbol': symbol
+                            })
+                        
+                        if df_data:
+                            df = pd.DataFrame(df_data)
+                            df['Date'] = pd.to_datetime(df['Date'])
+                            df = df.sort_values('Date').reset_index(drop=True)
+                            return df, f"CoinGecko Market: {len(df)} gün"
+                        
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    continue
+            
+            return None, "CoinGecko: Tüm endpoint'ler başarısız"
+            
+        except Exception as e:
+            return None, f"CoinGecko: {str(e)}"
+    
+    def _get_enhanced_binance_data(self, symbol: str, days: int = 1500) -> Tuple[Optional[pd.DataFrame], str]:
+        """Enhanced Binance with multiple endpoints and better handling"""
+        try:
+            if not self._is_crypto_symbol(symbol):
+                return None, "Binance: Kripto değil"
+            
+            binance_symbol = self._convert_to_binance_symbol(symbol)
+            if not binance_symbol:
+                return None, "Binance: Sembol desteklenmiyor"
+            
+            # Binance allows max 1000 klines per request, so we might need multiple requests
+            endpoints = [
+                "https://api.binance.com/api/v3/klines",
+                "https://api1.binance.com/api/v3/klines",
+                "https://api2.binance.com/api/v3/klines",
+                "https://api3.binance.com/api/v3/klines"
+            ]
+            
+            end_time = int((datetime.now() - timedelta(days=1)).timestamp() * 1000)
+            start_time = int((datetime.now() - timedelta(days=min(days, 1000))).timestamp() * 1000)
+            
+            for url in endpoints:
+                if self.interrupt_flag:
+                    break
+                    
+                params = {
+                    'symbol': binance_symbol,
+                    'interval': '1d',
+                    'startTime': start_time,
+                    'endTime': end_time,
+                    'limit': 1000
+                }
+                
+                time.sleep(random.uniform(0.2, 0.5))
+                
+                response = self._safe_request(url, params)
+                if not response:
+                    continue
+                
+                try:
+                    data = response.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        df_data = []
+                        
+                        for kline in data:
+                            timestamp = int(kline[0])
+                            date = datetime.fromtimestamp(timestamp / 1000).strftime('%Y-%m-%d')
+                            
+                            df_data.append({
+                                'Date': date,
+                                'Open': float(kline[1]),
+                                'High': float(kline[2]),
+                                'Low': float(kline[3]),
+                                'Close': float(kline[4]),
+                                'Volume': float(kline[5]),
+                                'Symbol': symbol
+                            })
+                        
+                        if df_data:
+                            df = pd.DataFrame(df_data)
+                            df['Date'] = pd.to_datetime(df['Date'])
+                            df = df.sort_values('Date').reset_index(drop=True)
+                            return df, f"Binance: {len(df)} gün (gerçek)"
+                    
+                except (json.JSONDecodeError, ValueError, KeyError):
+                    continue
+            
+            return None, "Binance: Tüm endpoint'ler başarısız"
+            
+        except Exception as e:
+            return None, f"Binance: {str(e)}"
+    
+    # Enhanced helper methods with expanded symbol mappings
+    def _is_crypto_symbol(self, symbol: str) -> bool:
+        """Enhanced crypto symbol detection"""
+        crypto_indicators = ['-USD', '-EUR', '-BTC', '-ETH', 'USD', 'BTC', 'ETH']
+        crypto_symbols = {'BTC', 'ETH', 'XRP', 'SOL', 'BNB', 'DOGE', 'LINK', 'DOT', 'UNI', 'AVAX'}
+        
+        return (any(indicator in symbol for indicator in crypto_indicators) or 
+                symbol.replace('-USD', '').replace('-EUR', '') in crypto_symbols)
+    
+    def _convert_to_coingecko_id(self, symbol: str) -> Optional[str]:
+        """Enhanced CoinGecko ID mapping with more symbols"""
+        conversions = {
+            'BTC-USD': 'bitcoin', 'ETH-USD': 'ethereum', 'XRP-USD': 'ripple',
+            'SOL-USD': 'solana', 'BNB-USD': 'binancecoin', 'DOGE-USD': 'dogecoin',
+            'LINK-USD': 'chainlink', 'DOT-USD': 'polkadot', 'UNI-USD': 'uniswap',
+            'AVAX-USD': 'avalanche-2', 'SHIB-USD': 'shiba-inu', 'XLM-USD': 'stellar',
+            'HBAR-USD': 'hedera-hashgraph', 'TRX-USD': 'tron', 'BCH-USD': 'bitcoin-cash',
+            'ETC-USD': 'ethereum-classic', 'NEAR-USD': 'near', 'APT-USD': 'aptos',
+            'FIL-USD': 'filecoin', 'API3-USD': 'api3', 'USDT-USD': 'tether',
+            'USDC-USD': 'usd-coin', 'DAI-USD': 'dai', 'WETH-USD': 'weth',
+            'WBTC-USD': 'wrapped-bitcoin', 'PEPE-USD': 'pepe', 'SUI-USD': 'sui',
+            'CFX-USD': 'conflux-token', 'XTZ-USD': 'tezos', 'ARB-USD': 'arbitrum',
+            'OP-USD': 'optimism', 'MNT-USD': 'mantle', 'SEI-USD': 'sei-network',
+            'TON-USD': 'the-open-network', 'LDO-USD': 'lido-dao', 'APE-USD': 'apecoin',
+            'USDT-EUR': 'tether', 'XAUT-USD': 'tether-gold'
+        }
+        return conversions.get(symbol)
+    
+    def _convert_to_binance_symbol(self, symbol: str) -> Optional[str]:
+        """Enhanced Binance symbol mapping"""
+        conversions = {
+            'BTC-USD': 'BTCUSDT', 'ETH-USD': 'ETHUSDT', 'XRP-USD': 'XRPUSDT',
+            'SOL-USD': 'SOLUSDT', 'BNB-USD': 'BNBUSDT', 'DOGE-USD': 'DOGEUSDT',
+            'LINK-USD': 'LINKUSDT', 'DOT-USD': 'DOTUSDT', 'UNI-USD': 'UNIUSDT',
+            'AVAX-USD': 'AVAXUSDT', 'SHIB-USD': 'SHIBUSDT', 'XLM-USD': 'XLMUSDT',
+            'TRX-USD': 'TRXUSDT', 'BCH-USD': 'BCHUSDT', 'ETC-USD': 'ETCUSDT',
+            'NEAR-USD': 'NEARUSDT', 'APT-USD': 'APTUSDT', 'FIL-USD': 'FILUSDT',
+            'API3-USD': 'API3USDT', 'CFX-USD': 'CFXUSDT', 'XTZ-USD': 'XTZUSDT',
+            'ARB-USD': 'ARBUSDT', 'OP-USD': 'OPUSDT', 'MNT-USD': 'MNTUSDT',
+            'SEI-USD': 'SEIUSDT', 'LDO-USD': 'LDOUSDT', 'APE-USD': 'APEUSDT'
+        }
+        return conversions.get(symbol)
+    
+    def _get_realtime_price(self, symbol: str) -> Optional[float]:
+        """Enhanced real-time price fetching with multiple fallbacks"""
+        # Priority: Yahoo Finance → Binance → CoinGecko
+        
+        # 1. Yahoo Finance - Most reliable for all assets
+        try:
+            endpoints = [
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
+            ]
+            
+            for url in endpoints:
+                params = {'interval': '1d', 'range': '1d'}
+                response = self._safe_request(url, params)
+                if response:
+                    data = response.json()
+                    result = data.get('chart', {}).get('result', [{}])[0]
+                    if result and 'meta' in result:
+                        price = result['meta'].get('regularMarketPrice') or result['meta'].get('previousClose')
+                        if price:
+                            return float(price)
+        except Exception:
+            pass
+        
+        # 2. Binance for crypto
+        if self._is_crypto_symbol(symbol):
+            binance_symbol = self._convert_to_binance_symbol(symbol)
+            if binance_symbol:
+                try:
+                    endpoints = [
+                        "https://api.binance.com/api/v3/ticker/price",
+                        "https://api1.binance.com/api/v3/ticker/price"
+                    ]
+                    
+                    for url in endpoints:
+                        params = {'symbol': binance_symbol}
+                        response = self._safe_request(url, params)
+                        if response:
+                            data = response.json()
+                            if 'price' in data:
+                                return float(data['price'])
+                except Exception:
+                    pass
+        
+        # 3. CoinGecko for crypto
+        if self._is_crypto_symbol(symbol):
+            coingecko_id = self._convert_to_coingecko_id(symbol)
+            if coingecko_id:
+                try:
+                    url = "https://api.coingecko.com/api/v3/simple/price"
+                    params = {'ids': coingecko_id, 'vs_currencies': 'usd'}
+                    response = self._safe_request(url, params)
+                    if response:
+                        data = response.json()
+                        if coingecko_id in data and 'usd' in data[coingecko_id]:
+                            return float(data[coingecko_id]['usd'])
+                except Exception:
+                    pass
+        
+        return None
+    
+    def _validate_and_clean_data(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+        """Enhanced data validation and cleaning"""
+        if df is None or df.empty:
+            return pd.DataFrame()
+        
+        original_count = len(df)
+        
+        # Remove duplicates
+        df = df.drop_duplicates(subset=['Date']).reset_index(drop=True)
+        
+        # Convert numeric columns
+        numeric_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Remove invalid prices
+        df = df[df['Close'] > 0].reset_index(drop=True)
+        df = df.dropna(subset=['Close']).reset_index(drop=True)
+        
+        # Remove extreme outliers (daily change > 300%)
+        if len(df) > 1:
+            df['pct_change'] = df['Close'].pct_change()
+            df = df[abs(df['pct_change']) < 3.0].reset_index(drop=True)
+            df = df.drop('pct_change', axis=1)
+        
+        # Ensure OHLC consistency
+        if all(col in df.columns for col in ['Open', 'High', 'Low', 'Close']):
+            # High should be >= max(Open, Close)
+            df['High'] = df[['High', 'Open', 'Close']].max(axis=1)
+            # Low should be <= min(Open, Close)
+            df['Low'] = df[['Low', 'Open', 'Close']].min(axis=1)
+        
+        # Sort by date
+        df = df.sort_values('Date').reset_index(drop=True)
+        
+        cleaned_count = len(df)
+        
+        if cleaned_count != original_count:
+            print(f"   🧹 {symbol}: {original_count} → {cleaned_count} kayıt (temizlendi)")
+        
+        return df
+    
+    def _try_all_sources_optimized(self, symbol: str, target_days: int = 1500) -> Tuple[Optional[pd.DataFrame], str, int]:
+        """Optimized sequential data fetching with smart prioritization"""
+        
+        # Prioritize sources based on symbol type
+        if self._is_crypto_symbol(symbol):
+            sources = [
+                ('Yahoo Finance', self._get_yahoo_finance_data),
+                ('Binance', self._get_enhanced_binance_data),
+                ('CoinGecko', self._get_enhanced_coingecko_data),
+            ]
+        else:
+            sources = [
+                ('Yahoo Finance', self._get_yahoo_finance_data),
+            ]
+        
+        all_source_dfs = []
+        used_sources = []
+        
+        # Sequential processing with smart early termination
+        for source_name, source_func in sources:
+            if self.interrupt_flag:
+                break
+                
+            try:
+                # Add small delay between requests to avoid rate limiting
+                time.sleep(random.uniform(0.2, 0.5))
+                
+                df, message = source_func(symbol, target_days)
+                
+                if df is not None and len(df) > 0:
+                    df = self._validate_and_clean_data(df, symbol)
+                    if len(df) > 0:
+                        all_source_dfs.append((source_name, df))
+                        used_sources.append(source_name)
+                        print(f"   ✅ {source_name}: {len(df)} gün ✓")
+                        
+                        # Early termination if we have enough data from primary source
+                        if len(df) >= target_days * 0.8 and source_name == 'Yahoo Finance':
+                            print(f"   🚀 {source_name} yeterli veri sağladı, diğer kaynaklar atlanıyor")
+                            break
+                    else:
+                        print(f"   ❌ {source_name}: Temizlik sonrası veri kalmadı")
+                else:
+                    print(f"   ❌ {source_name}: {message}")
+                    
+            except Exception as e:
+                print(f"   ❌ {source_name}: Exception - {str(e)}")
                 continue
-    
-    counter.increment_failed()
-    return symbol
-
-def process_batch_parallel(symbols, batch_size=10, max_workers=3):
-    """Batch'leri paralel olarak işler"""
-    cache_manager = CacheManager()
-    counter = ThreadSafeCounter()
-    all_results = []
-    original_to_found = {}  # Orijinal sembol -> Bulunan sembol mapping
-    
-    # Sembolleri batch'lere böl
-    batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
-    
-    print(f"Toplam {len(symbols)} sembol, {len(batches)} batch'te işlenecek")
-    print(f"Batch boyutu: {batch_size}, Max worker: {max_workers}")
-    
-    for batch_idx, batch in enumerate(batches, 1):
-        print(f"\n=== BATCH {batch_idx}/{len(batches)} ({len(batch)} sembol) ===")
         
-        # Her sembol için thread ID ekle
-        symbol_data = [(symbol, i) for i, symbol in enumerate(batch)]
-        batch_results = []
+        if not all_source_dfs:
+            return None, "Tüm kaynaklar başarısız", 0
         
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Future'ları submit et
-            future_to_symbol = {
-                executor.submit(yf_best_match_worker, data, counter, cache_manager): data[0]  
-                for data in symbol_data
+        # Merge all data sources, prioritizing actual values over forward-filled ones
+        all_dates = set()
+        for _, df in all_source_dfs:
+            all_dates.update(df['Date'])
+        
+        all_dates = sorted(all_dates)
+        
+        # Build combined dataset
+        records = []
+        for date in all_dates:
+            row = {'Date': date}
+            found = False
+            
+            # Try each source in priority order
+            for _, df in all_source_dfs:
+                match = df[df['Date'] == date]
+                if not match.empty:
+                    for col in ['Open', 'High', 'Low', 'Close', 'Volume', 'Symbol']:
+                        if col in match.columns:
+                            row[col] = match.iloc[0][col]
+                    found = True
+                    break
+            
+            if found:
+                records.append(row)
+        
+        if records:
+            combined_df = pd.DataFrame(records)
+            combined_df = combined_df.sort_values('Date').reset_index(drop=True)
+            
+            # Ensure we have enough data
+            if len(combined_df) >= self.min_days_required:
+                # _try_all_sources_parallel method continued from part 1
+                print(f"   📊 Kombine veriler: {len(combined_df)} gün")
+                return combined_df, '+'.join(used_sources), len(combined_df)
+            
+        return None, "Yetersiz veri", 0
+    
+    def _fill_weekend_gaps_enhanced(self, df: pd.DataFrame, target_days: int = None) -> pd.DataFrame:
+        """Enhanced weekend gap filling with better logic"""
+        if df.empty:
+            return df
+        
+        # Ensure we have the target number of days
+        end_date = df['Date'].max()
+        if target_days is not None:
+            start_date = end_date - pd.Timedelta(days=target_days-1)
+        else:
+            start_date = df['Date'].min()
+        
+        # Generate all dates in range
+        all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
+        complete_df = pd.DataFrame({'Date': all_dates})
+        complete_df = complete_df.merge(df, on='Date', how='left')
+        
+        # Smart forward fill for OHLC data
+        fill_columns = ['Open', 'High', 'Low', 'Close']
+        for col in fill_columns:
+            if col in complete_df.columns:
+                complete_df[col] = complete_df[col].fillna(method='ffill')
+        
+        # Volume should be 0 for non-trading days
+        if 'Volume' in complete_df.columns:
+            complete_df['Volume'] = complete_df['Volume'].fillna(0)
+        
+        # Fill symbol
+        if 'Symbol' in complete_df.columns:
+            complete_df['Symbol'] = complete_df['Symbol'].fillna(df['Symbol'].iloc[0] if len(df) > 0 else 'UNKNOWN')
+        
+        # Remove rows where we couldn't fill critical data
+        complete_df = complete_df.dropna(subset=['Close'])
+        
+        # Trim to target days if specified
+        if target_days is not None and len(complete_df) > target_days:
+            complete_df = complete_df.iloc[-target_days:]
+        
+        return complete_df.reset_index(drop=True)
+    
+    def download_all_symbols_optimized(self, symbols: List[str], target_days: int = 1500, 
+                                     output_file: Optional[str] = None, 
+                                     batch_processing: bool = True) -> Tuple[List[str], List[str]]:
+        """Optimized bulk download with batch processing and smart delays"""
+        
+        successful_symbols = []
+        failed_symbols = []
+        all_dfs = {}
+        
+        symbols = list(symbols)  # Ensure list
+        print(f"\n🚀 {len(symbols)} sembol için optimized veri çekme başlatılıyor...")
+        print(f"🎯 Minimum {self.min_days_required} günlük veri gerekli, hedef: {target_days} gün")
+        
+        # Batch processing to avoid overwhelming servers
+        batch_size = 5 if batch_processing else 1
+        batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
+        
+        total_processed = 0
+        
+        for batch_idx, batch in enumerate(batches):
+            if self.interrupt_flag:
+                break
+                
+            print(f"\n🔄 Batch {batch_idx + 1}/{len(batches)} işleniyor ({len(batch)} sembol)")
+            
+            for idx_in_batch, symbol in enumerate(batch):
+                if self.interrupt_flag:
+                    break
+                
+                global_idx = total_processed + idx_in_batch + 1
+                print(f"\n[{global_idx}/{len(symbols)}] 🔍 {symbol} işleniyor...")
+                
+                try:
+                    df, source, count = self._try_all_sources_optimized(symbol, target_days)
+                    
+                    if df is not None and len(df) >= self.min_days_required:
+                        # Apply enhanced gap filling
+                        df = self._fill_weekend_gaps_enhanced(df, target_days)
+                        
+                        if len(df) >= self.min_days_required:
+                            # Final validation
+                            df = self._validate_and_clean_data(df, symbol)
+                            
+                            if len(df) >= self.min_days_required:
+                                # Keep only Date and Close for CSV output
+                                result_df = df[['Date', 'Close']].copy()
+                                result_df = result_df.rename(columns={'Close': symbol})
+                                
+                                all_dfs[symbol] = result_df
+                                successful_symbols.append(symbol)
+                                print(f"✅ {symbol}: {len(result_df)} gün - {source}")
+                            else:
+                                failed_symbols.append(symbol)
+                                print(f"❌ {symbol}: Final validation failed ({len(df)} < {self.min_days_required})")
+                        else:
+                            failed_symbols.append(symbol)
+                            print(f"❌ {symbol}: Gap filling sonrası yetersiz veri ({len(df)} < {self.min_days_required})")
+                    else:
+                        failed_symbols.append(symbol)
+                        print(f"❌ {symbol}: Yetersiz veri - {count if df is not None else 0} gün")
+                        
+                except Exception as e:
+                    failed_symbols.append(symbol)
+                    print(f"❌ {symbol}: İşlem hatası - {str(e)}")
+                
+                # Smart delay based on success/failure
+                if symbol in successful_symbols:
+                    delay = random.uniform(0.5, 1.0)  # Shorter delay for successful requests
+                else:
+                    delay = random.uniform(1.0, 2.0)  # Longer delay after failures
+                
+                time.sleep(delay)
+            
+            total_processed += len(batch)
+            
+            # Longer delay between batches
+            if batch_idx < len(batches) - 1:  # Don't delay after last batch
+                batch_delay = random.uniform(2.0, 3.0)
+                print(f"   ⏳ Batch arası {batch_delay:.1f}s bekle...")
+                time.sleep(batch_delay)
+        
+        # Save results to CSV if we have successful data
+        if all_dfs and output_file:
+            print(f"\n💾 CSV dosyası oluşturuluyor: {output_file}")
+            
+            # Merge all DataFrames on Date (outer join for maximum coverage)
+            merged_df = None
+            for symbol, df in all_dfs.items():
+                if merged_df is None:
+                    merged_df = df
+                else:
+                    merged_df = pd.merge(merged_df, df, on='Date', how='outer')
+            
+            # Sort by date
+            merged_df = merged_df.sort_values('Date').reset_index(drop=True)
+            
+            # Remove future dates (keep only up to yesterday)
+            yesterday = pd.to_datetime((datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'))
+            merged_df = merged_df[merged_df['Date'] <= yesterday]
+            
+            # Add real-time prices for today
+            print("Anlık fiyatlar ekleniyor...")
+            today = pd.to_datetime(datetime.now().strftime('%Y-%m-%d'))
+            realtime_row = {'Date': today}
+            
+            realtime_count = 0
+            for symbol in successful_symbols:
+                try:
+                    price = self._get_realtime_price(symbol)
+                    if price is not None:
+                        realtime_row[symbol] = price
+                        realtime_count += 1
+                    else:
+                        realtime_row[symbol] = None
+                except Exception:
+                    realtime_row[symbol] = None
+            
+            # Only add realtime row if we got at least some prices
+            if realtime_count > 0:
+                merged_df = pd.concat([merged_df, pd.DataFrame([realtime_row])], ignore_index=True)
+                print(f"    {realtime_count}/{len(successful_symbols)} anlık fiyat eklendi")
+            
+            # Save to CSV
+            merged_df.to_csv(output_file, index=False)
+            print(f"   {len(merged_df)} satır, {len(merged_df.columns)-1} sembol kaydedildi")
+            
+            # Data quality report
+            print(f"\n VERİ KALİTE RAPORU:")
+            print(f"   • Toplam satır: {len(merged_df)}")
+            print(f"   • Tarih aralığı: {merged_df['Date'].min().strftime('%Y-%m-%d')} - {merged_df['Date'].max().strftime('%Y-%m-%d')}")
+            print(f"   • Başarılı semboller: {len(successful_symbols)}")
+            
+            # Missing data analysis
+            missing_data = merged_df.isnull().sum()
+            if missing_data.sum() > 0:
+                print(f"   • Eksik veri olan semboller:")
+                for symbol in missing_data.index:
+                    if symbol != 'Date' and missing_data[symbol] > 0:
+                        missing_pct = (missing_data[symbol] / len(merged_df)) * 100
+                        print(f"     - {symbol}: {missing_data[symbol]} kayıt (%{missing_pct:.1f})")
+        
+        return successful_symbols, failed_symbols
+    
+    def validate_symbol_coverage(self, symbols: List[str]) -> Dict[str, Dict[str, bool]]:
+        """Validate which data sources support which symbols"""
+        coverage = {}
+        
+        print("\n🔍 SEMBOL KAYNAK KAPSAMASI ANALİZİ")
+        print(f"{'Sembol':<15} {'Yahoo':<8} {'Binance':<10} {'CoinGecko':<12} {'Desteklenen':<12}")
+        print("-" * 65)
+        
+        for symbol in symbols:
+            yahoo_support = True  # Yahoo generally supports most symbols
+            binance_support = self._convert_to_binance_symbol(symbol) is not None
+            coingecko_support = self._convert_to_coingecko_id(symbol) is not None
+            
+            total_support = sum([yahoo_support, binance_support, coingecko_support])
+            
+            coverage[symbol] = {
+                'yahoo': yahoo_support,
+                'binance': binance_support,
+                'coingecko': coingecko_support,
+                'total_sources': total_support
             }
             
-            # Sonuçları topla
-            for future in as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
-                try:
-                    result = future.result()
-                    original_to_found[symbol] = result
-                    batch_results.append(result)
-                except Exception as exc:
-                    print(f'[ERROR] {symbol} işlenirken hata: {exc}')
-                    original_to_found[symbol] = symbol
-                    batch_results.append(symbol)  # Hata varsa orijinal sembolü ekle
+            yahoo_str = "✅" if yahoo_support else "❌"
+            binance_str = "✅" if binance_support else "❌"
+            coingecko_str = "✅" if coingecko_support else "❌"
+            
+            print(f"{symbol:<15} {yahoo_str:<8} {binance_str:<10} {coingecko_str:<12} {total_support}/3")
         
-        all_results.extend(batch_results)
-        
-        # Batch arası bekleme
-        if batch_idx < len(batches):
-            wait_time = 10 + len(batch)  # Batch boyutuna göre bekleme
-            print(f"Batch tamamlandı. {wait_time} saniye bekleniyor...")
-            time.sleep(wait_time)
-        
-        # İstatistikleri göster
-        stats = counter.get_stats()
-        print(f"İstatistikler: İşlenen={stats['processed']}, Başarılı={stats['successful']}, "
-              f"Başarısız={stats['failed']}, Rate Limited={stats['rate_limited']}")
-    
-    # Cache'i kaydet
-    cache_manager.save_cache()
-    
-    # Sadece Yahoo Finance'te bulunan coinleri filtrele (orijinal != bulunan)
-    found_symbols = []
-    not_found_symbols = []
-    
-    for original, found in original_to_found.items():
-        if original != found:  # Yahoo'da farklı bir sembol bulundu
-            if found not in found_symbols:  # Duplicate kontrolü
-                found_symbols.append(found)
-        else:  # Yahoo'da bulunamadı (orijinal sembol döndü)
-            not_found_symbols.append(original)
-    
-    print(f"\n📊 Yahoo Finance Kontrol Sonuçları:")
-    print(f"   ✅ Yahoo'da bulunan: {len(found_symbols)}")
-    print(f"   ❌ Yahoo'da bulunamayan: {len(not_found_symbols)}")
-    
-    return found_symbols, counter.get_stats(), not_found_symbols
+        return coverage
 
-def main():
-    """Ana fonksiyon"""
-    print("🚀 Hibrit Crypto Ticker Processor Başlatılıyor...")
-    
-    # Konfigürasyon
-    BATCH_SIZE = 30        # Her batch'te kaç sembol
-    MAX_WORKERS = 5       # Aynı anda kaç thread
-    COIN_LIMIT = 80     # Kaç coin alınacak
-    
-    print(f"Konfigürasyon: Batch={BATCH_SIZE}, Workers={MAX_WORKERS}, Limit={COIN_LIMIT}")
-    
-    # Coin listesi al
-    print("\n📊 Coin listesi alınıyor...")
-    coin_names = get_real_top_coins(COIN_LIMIT)
-    
-    if not coin_names:
-        print("❌ Coin listesi alınamadı!")
-        return
-    
-    print(f"✅ {len(coin_names)} coin bulundu.")
-    
-    # Yahoo Finance sembollerine dönüştür
-    print("\n🔄 Yahoo Finance sembollerine dönüştürülüyor...")
-    yahoo_symbols = convert_to_yahoo_symbols(coin_names)
-    
-    print("İlk 10 dönüşüm:")
-    for name, symbol in zip(coin_names[:10], yahoo_symbols[:10]):
-        print(f"  {name.ljust(20)} -> {symbol}")
-    
-    # Paralel batch işleme
-    print(f"\n⚡ {len(yahoo_symbols)} sembol paralel batch işleme ile kontrol ediliyor...")
-    start_time = time.time()
-    
-    corrected_symbols, final_stats, not_found_symbols = process_batch_parallel(
-        yahoo_symbols, 
-        batch_size=BATCH_SIZE, 
-        max_workers=MAX_WORKERS
+
+# MAIN EXECUTION SCRIPT
+if __name__ == "__main__":
+    # Extended and validated symbol list with real market symbols
+    """veriler = [
+    # 🔹 Major Stock Indices
+    "^GSPC", "^DJI", "^IXIC", "^NDX", "^FTSE", "^GDAXI", "^N225", "^STOXX50E", "000001.SS", "^HSI", "XU100.IS",
+    "^RUT", "^VIX", "^AXJO", "^BSESN", "^KS11", "^TWII", "IMOEX.ME", "^BVSP", "^MXX",
+
+    # 🔹 Individual Stocks (High Volume)
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "SPGI", "JPM", "JNJ",
+    "BRK-B", "V", "MA", "UNH", "PG", "HD", "PEP", "COST", "DIS", "NKE", "PFE", "BAC", "KO", "INTC", "ORCL",
+
+    # 🔹 Currency & Commodities
+    "DX-Y.NYB", "EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "ZC=F", "ZS=F", "ZW=F",
+    "AUDUSD=X", "NZDUSD=X", "USDCAD=X", "USDCHF=X",
+    "PL=F", "PA=F", "LE=F", "HE=F", "KC=F", "CC=F", "SB=F",
+
+    # 🔹 Bonds & Interest Rates
+    "^TNX", "^FVX", "^TYX", "TLT",
+    "IEI", "SHY", "IEF", "TIP",
+
+    # 🔹 Major Cryptocurrencies
+    "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "BNB-USD", "DOGE-USD", "AVAX-USD", "LINK-USD",
+    "DOT-USD", "UNI-USD", "BCH-USD", "XLM-USD", "TRX-USD", "ETC-USD", "NEAR-USD", "APT-USD",
+    "FIL-USD", "API3-USD", "SHIB-USD", "HBAR-USD",
+    "INJ-USD", "MKR-USD", "RUNE-USD", "STX-USD", "SNX-USD", "CRV-USD", "TON11419-USD",
+
+    # 🔹 Stablecoins & Wrapped Tokens
+    "USDT-USD", "USDC-USD", "DAI-USD", "WETH-USD", "WBTC-USD",
+    "FRAX-USD", "USDN-USD", "TUSD-USD",
+
+    # 🔹 Emerging Crypto Projects
+    "PEPE-USD", "SUI-USD", "CFX-USD", "XTZ-USD", "ARB-USD", "OP-USD", "MNT-USD", "SEI-USD",
+    "TON-USD", "LDO-USD", "APE-USD",
+    "JTO-USD", "PYTH-USD", "ZETA-USD", "JUP-USD", "METIS-USD",
+++
+    # 🔹 Alternative Assets
+    "USDT-EUR", "XAUT-USD",
+    "BAR", "IAU", "SLV", "GLDM", "UUP"
+    ]"""
+    veriler = [
+    # 🔹 Major Stock Indices
+    "^GSPC", "^DJI", "^IXIC", "^NDX", "^FTSE", "^GDAXI", "^N225", "^STOXX50E", "000001.SS", "^HSI", "XU100.IS",
+    "^RUT", "^VIX", "^AXJO", "^BSESN", "^KS11", "^TWII", "IMOEX.ME", "^BVSP", "^MXX",
+    "^NSEI", "^JALSH", "^CASE30", "^TA125", "^IDX30", "^KLSE",
+
+    # 🔹 Individual Stocks (High Volume)
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "SPGI", "JPM", "JNJ",
+    "BRK-B", "V", "MA", "UNH", "PG", "HD", "PEP", "COST", "DIS", "NKE", "PFE", "BAC", "KO", "INTC", "ORCL",
+    "TSM", "BABA", "NVS", "TM", "SAP",
+
+    # 🔹 Currency & Commodities
+    "DX-Y.NYB", "EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "ZC=F", "ZS=F", "ZW=F",
+    "AUDUSD=X", "NZDUSD=X", "USDCAD=X", "USDCHF=X",
+    "PL=F", "PA=F", "LE=F", "HE=F", "KC=F", "CC=F", "SB=F", "LBS=F", "OJ=F",
+
+    # 🔹 Bonds & Interest Rates
+    "^TNX", "^FVX", "^TYX", "TLT",
+    "IEI", "SHY", "IEF", "TIP",
+
+    # 🔹 Major Cryptocurrencies
+    "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "BNB-USD", "AVAX-USD", "DOT-USD", "UNI-USD",
+    "BCH-USD", "XLM-USD", "TRX-USD", "ETC-USD", "NEAR-USD", "APT-USD", "FIL-USD", "API3-USD",
+    "SHIB-USD", "HBAR-USD", "INJ-USD", "MKR-USD", "RUNE-USD", "STX-USD", "SNX-USD", "CRV-USD",
+    "TON11419-USD", "MINA-USD", "MANA-USD", "ATOM-USD", "FTM-USD", "KAVA-USD", "EGLD-USD", "AR-USD",
+    "GMX-USD", "AAVE-USD", "1INCH-USD", "ZEC-USD", "LTC-USD", "CRO-USD", "DASH-USD",
+
+    # 🔹 Stablecoins & Wrapped Tokens
+    "USDT-USD", "USDC-USD", "DAI-USD", "WETH-USD", "WBTC-USD", "FRAX-USD", "USDN-USD",
+    "TUSD-USD", "SUSD-USD", "ALUSD-USD", "GUSD-USD", "LUSD-USD", "USDP-USD",
+
+    # 🔹 Emerging Crypto Projects
+    "PEPE-USD", "SUI-USD", "CFX-USD", "XTZ-USD", "ARB-USD", "OP-USD", "MNT-USD", "SEI-USD",
+    "TON-USD", "LDO-USD", "APE-USD", "JTO-USD", "PYTH-USD", "ZETA-USD", "JUP-USD", "METIS-USD",
+    "AKT-USD", "NKN-USD", "FET-USD", "AGIX-USD", "OCEAN-USD", "FRIEND-USD", "DESO-USD",
+    "BLUR-USD", "TIA-USD", "SYN-USD", "AIOZ-USD", "DYDX-USD", "JOE-USD", "NYM-USD",
+    "CKB-USD", "CANTO-USD", "VRA-USD", "VELO-USD", "ID-USD",
+
+    # 🔹 Gaming / Metaverse / NFT Related
+    "SAND-USD", "AXS-USD", "GALA-USD", "ENJ-USD", "ILV-USD", "IMX-USD", "RARI-USD",
+    "ALICE-USD", "YGG-USD", "MAGIC-USD", "GHST-USD", "HIGH-USD",
+
+    # 🔹 AI & Big Data Tokens
+    "RNDR-USD", "NMR-USD", "CTX-USD", "ALI-USD",
+
+    # 🔹 Layer 2 / Rollups / Infrastructure
+    "ZKS-USD", "STARK-USD", "LOOM-USD", "OMG-USD",
+
+    # 🔹 Oracle & Data Sharing
+    "BAND-USD", "DIA-USD", "UMA-USD", "TRB-USD",
+
+    # 🔹 Privacy Coins
+    "XMR-USD", "SCRT-USD", "BEAM-USD",
+
+    # 🔹 Meme & Community Tokens
+    "FLOKI-USD", "BONK-USD", "WIF-USD", "HOGE-USD",
+
+    # 🔹 RWA (Real World Asset) Tokenleri
+    "ONDO-USD", "CFG-USD", "RIO-USD", "SKY-USD", "OM-USD",
+
+    # 🔹 DeFi Lending / Borrowing
+    "COMP-USD", "MORPHO-USD", "ALCX-USD", "TRU-USD", "RDNT-USD", "SLND-USD", "BZRX-USD",
+
+    # 🔹 Liquid Staking (LST) tokenleri
+    "RPL-USD", "ANKR-USD", "ETHFI-USD", "REZ-USD", "PSTAKE-USD", "SWETH-USD", "PZETH-USD",
+
+    # 🔹 İşlem Hacmine Göre İlk 37 Coin (24‑s saatlik hacme göre)
+    "USDT-USD", "BTC-USD", "ETH-USD", "DAI-USD", "USDC-USD", "FDUSD-USD", "XRP-USD",
+    "SOL-USD", "BNB-USD", "ALGO-USD", "ADA-USD", "TRX-USD", "DOGE-USD", "WYETH-USD",
+    "LDO-USD", "STETH-USD", "RPL-USD", "ANKR-USD", "JTO-USD", "WBTC-USD",
+    "ALGO-USD", "ADA-USD", "FTM-USD", "LINK-USD", "MATIC-USD", "AVAX-USD",
+    "SHIB-USD", "UNI-USD", "ICP-USD", "AXS-USD", "SAND-USD", "FIL-USD",
+    "VET-USD", "MKR-USD", "EOS-USD", "XTZ-USD", "XLM-USD",
+
+    # 🔹 Alternative Assets
+    "USDT-EUR", "XAUT-USD",
+    "BAR", "IAU", "SLV", "GLDM", "UUP", "PAXG-USD", "SPDR", "KRBN",
+
+    # 🔹 Temettü Hisseleri (Long-Term)
+    "CVX", "T", "VZ", "MMM", "IBM", "XOM",
+
+    # 🔹 Volatil Altcoinler (Short-Term)
+    "FLOKI-USD", "BONK-USD", "LUNC-USD", "VRA-USD", "WIF-USD",
+    "JASMY-USD", "REQ-USD", "MASK-USD", "CHZ-USD", "CVC-USD",
+
+    # 🔹 Hedge Fon İlgi Alanı (Spekülatif Hisseler)
+    "PLTR", "RIVN", "HOOD", "LCID", "SOFI", "AFRM", "DNA", "FUBO",
+    "BBBYQ", "GME", "AMC", "BB"
+    ]
+
+    # Initialize optimized scraper
+    scraper = OptimizedFinancialScraper(
+        min_days_required=100,  # Minimum 1001 days required
+        max_workers=5,           # Parallel workers
+        request_timeout=30       # 30 second timeout
     )
     
-    end_time = time.time()
-    processing_time = end_time - start_time
+    # Create output directory
+    output_dir = "optimized_financial_data"
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Sonuçları yazdır
-    print(f"\n🎉 === SONUÇLAR ===")
-    print(f"⏱️  Toplam süre: {processing_time:.1f} saniye")
-    print(f"📈 Yahoo'da bulunan sembol sayısı: {len(corrected_symbols)}")
-    print(f"📊 İstatistikler:")
-    print(f"   ✅ İşlenen: {final_stats['processed']}")
-    print(f"   🎯 Başarılı: {final_stats['successful']}")
-    print(f"   ❌ Başarısız: {final_stats['failed']}")
-    print(f"   ⏳ Rate Limited: {final_stats['rate_limited']}")
-    print(f"   🚀 Hız: {final_stats['processed']/processing_time:.2f} sembol/saniye")
-    print(f"   📈 Başarı oranı: {final_stats['successful']/max(final_stats['processed'],1)*100:.1f}%")
-    
-    print(f"\n🎯 === SADECE YAHOO FINANCE'TE BULUNAN COİNLER ===")
-    print(f"📋 Yahoo Finance ticker listesi ({len(corrected_symbols)} adet):")
-    print(corrected_symbols)
-    
-    print(f"\n📄 CSV formatı:")
-    print(",".join(corrected_symbols))
-    
-    # Bulunamayan coinleri göster (opsiyonel)
-    if not_found_symbols:
-        print(f"\n⚠️  Yahoo Finance'te bulunamayan coinler ({len(not_found_symbols)} adet):")
-        print(", ".join(not_found_symbols[:20]))  # İlk 20'sini göster
-        if len(not_found_symbols) > 20:
-            print(f"... ve {len(not_found_symbols) - 20} coin daha")
-    
-    # Dosyaya kaydet
-    output_file = "yahoo_symbols_result.txt"
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("=== YAHOO FINANCE'TE BULUNAN COİNLER ===\n")
-            f.write("Ticker List:\n")
-            f.write(",".join(corrected_symbols))
-            f.write(f"\n\n=== İSTATİSTİKLER ===\n")
-            f.write(f"Yahoo'da bulunan: {len(corrected_symbols)}\n")
-            f.write(f"Yahoo'da bulunamayan: {len(not_found_symbols)}\n")
-            f.write(f"Toplam işlenen: {final_stats['processed']}\n")
-            f.write(f"İşlem süresi: {processing_time:.1f}s\n")
-            f.write(f"Hız: {final_stats['processed']/processing_time:.2f} sembol/saniye\n")
-            f.write(f"Başarı oranı: {final_stats['successful']/max(final_stats['processed'],1)*100:.1f}%\n")
-            
-            if not_found_symbols:
-                f.write(f"\n=== YAHOO'DA BULUNAMAYAN COİNLER ===\n")
-                f.write("\n".join(not_found_symbols))
-                
-        print(f"💾 Sonuçlar '{output_file}' dosyasına kaydedildi.")
-    except Exception as e:
-        print(f"❌ Dosya kaydetme hatası: {e}")
+    print(" OPTİMİZE EDİLMİŞ FİNANSAL VERİ ÇEKME SİSTEMİ v2.0")
+    print(f"{len(veriler)} sembol için veri çekilecek")
+    print(f" Minimum {scraper.min_days_required} günlük veri gerekli")
+    print(" Paralel işleme ve gelişmiş hata yönetimi aktif")
 
-if __name__ == "__main__":
-    main()
+    # Validate symbol coverage before starting
+    coverage = scraper.validate_symbol_coverage(veriler)
+    
+    # Filter symbols with at least 2 source support for better success rate
+    supported_symbols = [
+        symbol for symbol, info in coverage.items() 
+        if info['total_sources'] >= 2
+    ]
+    
+    unsupported_symbols = [
+        symbol for symbol, info in coverage.items() 
+        if info['total_sources'] < 2
+    ]
+    
+    if unsupported_symbols:
+        print(f"\n⚠  Düşük destek seviyeli semboller: {len(unsupported_symbols)}")
+        for symbol in unsupported_symbols:
+            print(f"   - {symbol}: {coverage[symbol]['total_sources']}/3 kaynak")
+    
+    print(f"\n Yüksek başarı şansı olan semboller: {len(supported_symbols)}")
+    
+    # Start optimized download process
+    successful, failed = scraper.download_all_symbols_optimized(
+        symbols=veriler,  # Use all symbols, let the system handle fallbacks
+        target_days=8000,  # Target 2000 days for comprehensive historical data
+        output_file=f"{output_dir}/comprehensive_market_data_200_plus_features.csv",
+        batch_processing=True  # Enable batch processing instead of parallel
+    )
+    
+    # Final results
+    print(f"\n OPTİMİZE EDİLMİŞ İŞLEM TAMAMLANDI!")
+    print(f" Başarılı semboller: {len(successful)}")
+    print(f" Başarısız semboller: {len(failed)}")
+    print(f" Başarı oranı: %{(len(successful)/(len(successful)+len(failed)))*100:.1f}")
+    
+    if successful:
+        print(f"\n BAŞARILI SEMBOLLER:")
+        for i, symbol in enumerate(successful, 1):
+            print(f"   {i:2d}. {symbol}")
+    
+    if failed:
+        print(f"\n BAŞARISIZ SEMBOLLER:")
+        for i, symbol in enumerate(failed, 1):
+            print(f"   {i:2d}. {symbol}")
+    
+    print(f"\n Veri dosyası: {output_dir}/comprehensive_market_data_200_plus_features.csv")
+    print(" Optimized scraper tamamlandı!")
