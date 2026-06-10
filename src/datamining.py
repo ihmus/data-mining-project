@@ -31,7 +31,7 @@ class OptimizedFinancialScraper:
         
     def _signal_handler(self, signum, frame):
         """Graceful shutdown handler"""
-        print("\n İşlem durduruldu! Mevcut veriler kaydediliyor...")
+        print("\n🛑 İşlem durduruldu! Mevcut veriler kaydediliyor...")
         self.interrupt_flag = True
         
     def _create_session(self) -> requests.Session:
@@ -98,24 +98,24 @@ class OptimizedFinancialScraper:
                     return response
                 elif response.status_code == 429:  # Rate limit
                     wait_time = min(2 ** attempt, 30)  # Max 30 seconds
-                    print(f" Rate limit, {wait_time}s bekleniyor...")
+                    print(f"⏳ Rate limit, {wait_time}s bekleniyor...")
                     time.sleep(wait_time)
                     continue
                 elif response.status_code in [502, 503, 504]:  # Server errors
                     wait_time = min(2 ** attempt, 15)
-                    print(f" Server hatası {response.status_code}, {wait_time}s bekleniyor...")
+                    print(f"⚠️  Server hatası {response.status_code}, {wait_time}s bekleniyor...")
                     time.sleep(wait_time)
                     continue
                 else:
-                    print(f" HTTP {response.status_code} for {url}")
+                    print(f"❌ HTTP {response.status_code} for {url}")
                     
             except requests.exceptions.Timeout:
-                print(f" Timeout at attempt {attempt + 1}")
+                print(f"⏰ Timeout at attempt {attempt + 1}")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
             except requests.exceptions.RequestException as e:
                 if attempt == retries - 1:
-                    print(f" Request failed after {retries} attempts: {str(e)}")
+                    print(f"❌ Request failed after {retries} attempts: {str(e)}")
                     return None
                 time.sleep(min(2 ** attempt, 10))
                 
@@ -696,7 +696,7 @@ class OptimizedFinancialScraper:
         print(f"🎯 Minimum {self.min_days_required} günlük veri gerekli, hedef: {target_days} gün")
         
         # Batch processing to avoid overwhelming servers
-        batch_size = 5 if batch_processing else 1
+        batch_size = 1 if batch_processing else 1
         batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
         
         total_processed = 0
@@ -783,7 +783,7 @@ class OptimizedFinancialScraper:
             merged_df = merged_df[merged_df['Date'] <= yesterday]
             
             # Add real-time prices for today
-            print("Anlık fiyatlar ekleniyor...")
+            print("📡 Anlık fiyatlar ekleniyor...")
             today = pd.to_datetime(datetime.now().strftime('%Y-%m-%d'))
             realtime_row = {'Date': today}
             
@@ -802,14 +802,14 @@ class OptimizedFinancialScraper:
             # Only add realtime row if we got at least some prices
             if realtime_count > 0:
                 merged_df = pd.concat([merged_df, pd.DataFrame([realtime_row])], ignore_index=True)
-                print(f"    {realtime_count}/{len(successful_symbols)} anlık fiyat eklendi")
+                print(f"   ✅ {realtime_count}/{len(successful_symbols)} anlık fiyat eklendi")
             
             # Save to CSV
             merged_df.to_csv(output_file, index=False)
-            print(f"   {len(merged_df)} satır, {len(merged_df.columns)-1} sembol kaydedildi")
+            print(f"   💾 {len(merged_df)} satır, {len(merged_df.columns)-1} sembol kaydedildi")
             
             # Data quality report
-            print(f"\n VERİ KALİTE RAPORU:")
+            print(f"\n📊 VERİ KALİTE RAPORU:")
             print(f"   • Toplam satır: {len(merged_df)}")
             print(f"   • Tarih aralığı: {merged_df['Date'].min().strftime('%Y-%m-%d')} - {merged_df['Date'].max().strftime('%Y-%m-%d')}")
             print(f"   • Başarılı semboller: {len(successful_symbols)}")
@@ -859,48 +859,11 @@ class OptimizedFinancialScraper:
 # MAIN EXECUTION SCRIPT
 if __name__ == "__main__":
     # Extended and validated symbol list with real market symbols
-    """veriler = [
+    veriler = set([
     # 🔹 Major Stock Indices
     "^GSPC", "^DJI", "^IXIC", "^NDX", "^FTSE", "^GDAXI", "^N225", "^STOXX50E", "000001.SS", "^HSI", "XU100.IS",
     "^RUT", "^VIX", "^AXJO", "^BSESN", "^KS11", "^TWII", "IMOEX.ME", "^BVSP", "^MXX",
-
-    # 🔹 Individual Stocks (High Volume)
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "SPGI", "JPM", "JNJ",
-    "BRK-B", "V", "MA", "UNH", "PG", "HD", "PEP", "COST", "DIS", "NKE", "PFE", "BAC", "KO", "INTC", "ORCL",
-
-    # 🔹 Currency & Commodities
-    "DX-Y.NYB", "EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "ZC=F", "ZS=F", "ZW=F",
-    "AUDUSD=X", "NZDUSD=X", "USDCAD=X", "USDCHF=X",
-    "PL=F", "PA=F", "LE=F", "HE=F", "KC=F", "CC=F", "SB=F",
-
-    # 🔹 Bonds & Interest Rates
-    "^TNX", "^FVX", "^TYX", "TLT",
-    "IEI", "SHY", "IEF", "TIP",
-
-    # 🔹 Major Cryptocurrencies
-    "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "BNB-USD", "DOGE-USD", "AVAX-USD", "LINK-USD",
-    "DOT-USD", "UNI-USD", "BCH-USD", "XLM-USD", "TRX-USD", "ETC-USD", "NEAR-USD", "APT-USD",
-    "FIL-USD", "API3-USD", "SHIB-USD", "HBAR-USD",
-    "INJ-USD", "MKR-USD", "RUNE-USD", "STX-USD", "SNX-USD", "CRV-USD", "TON11419-USD",
-
-    # 🔹 Stablecoins & Wrapped Tokens
-    "USDT-USD", "USDC-USD", "DAI-USD", "WETH-USD", "WBTC-USD",
-    "FRAX-USD", "USDN-USD", "TUSD-USD",
-
-    # 🔹 Emerging Crypto Projects
-    "PEPE-USD", "SUI-USD", "CFX-USD", "XTZ-USD", "ARB-USD", "OP-USD", "MNT-USD", "SEI-USD",
-    "TON-USD", "LDO-USD", "APE-USD",
-    "JTO-USD", "PYTH-USD", "ZETA-USD", "JUP-USD", "METIS-USD",
-++
-    # 🔹 Alternative Assets
-    "USDT-EUR", "XAUT-USD",
-    "BAR", "IAU", "SLV", "GLDM", "UUP"
-    ]"""
-    veriler = [
-    # 🔹 Major Stock Indices
-    "^GSPC", "^DJI", "^IXIC", "^NDX", "^FTSE", "^GDAXI", "^N225", "^STOXX50E", "000001.SS", "^HSI", "XU100.IS",
-    "^RUT", "^VIX", "^AXJO", "^BSESN", "^KS11", "^TWII", "IMOEX.ME", "^BVSP", "^MXX",
-    "^NSEI", "^JALSH", "^CASE30", "^TA125", "^IDX30", "^KLSE",
+    "^NSEI", "^J203.JO", "^CASE30", "^TA125.TA", "XKID.JK", "^KLSE",
 
     # 🔹 Individual Stocks (High Volume)
     "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "SPGI", "JPM", "JNJ",
@@ -919,7 +882,7 @@ if __name__ == "__main__":
     # 🔹 Major Cryptocurrencies
     "BTC-USD", "ETH-USD", "XRP-USD", "SOL-USD", "BNB-USD", "AVAX-USD", "DOT-USD", "UNI-USD",
     "BCH-USD", "XLM-USD", "TRX-USD", "ETC-USD", "NEAR-USD", "APT-USD", "FIL-USD", "API3-USD",
-    "SHIB-USD", "HBAR-USD", "INJ-USD", "MKR-USD", "RUNE-USD", "STX-USD", "SNX-USD", "CRV-USD",
+    "SHIB-USD", "HBAR-USD", "INJ-USD", "MKR-USD", "RUNE-USD","SNX-USD", "CRV-USD",
     "TON11419-USD", "MINA-USD", "MANA-USD", "ATOM-USD", "FTM-USD", "KAVA-USD", "EGLD-USD", "AR-USD",
     "GMX-USD", "AAVE-USD", "1INCH-USD", "ZEC-USD", "LTC-USD", "CRO-USD", "DASH-USD",
 
@@ -933,6 +896,63 @@ if __name__ == "__main__":
     "AKT-USD", "NKN-USD", "FET-USD", "AGIX-USD", "OCEAN-USD", "FRIEND-USD", "DESO-USD",
     "BLUR-USD", "TIA-USD", "SYN-USD", "AIOZ-USD", "DYDX-USD", "JOE-USD", "NYM-USD",
     "CKB-USD", "CANTO-USD", "VRA-USD", "VELO-USD", "ID-USD",
+    "BTC-USD",    # BTCUSDT
+    "ETH-USD",    # ETHUSDT
+    "XRP-USD",    # XRPUSDT
+    "BNB-USD",    # BNBUSDT
+    "SOL-USD",    # SOLUSDT
+    "DOGE-USD",   # DOGEUSDT
+    "TRX-USD",    # TRXUSDT
+    "ADA-USD",    # ADAUSDT
+    "XLM-USD",    # XLMUSDT
+    "LINK-USD",   # LINKUSDT
+    "WBETH-USD",  # WBETHUSDT (Not: Yahoo'da doğrudan karşılığı olmayabilir)
+    "WBTC-USD",   # WBTCUSDT
+    "SUI-USD",    # SUIUSDT
+    "HBAR-USD",   # HBARUSDT
+    "BCH-USD",    # BCHUSDT
+    "AVAX-USD",   # AVAXUSDT
+    "UNI-USD",    # UNIUSDT
+    "LTC-USD",    # LTCUSDT
+    "TON-USD",    # TONUSDT (Not: Toncoin)
+    "SHIB-USD",   # SHIBUSDT
+    "DOT-USD",    # DOTUSDT
+    "PAXG-USD",   # PAXGUSDT
+    "AAVE-USD",   # AAVEUSDT
+    "ONDO-USD",   # ONDOUSDT (Not: Yahoo'da listelenmeyebilir)
+    "PEPE-USD",   # PEPEUSDT
+    "ARB-USD",    # ARBUSDT
+    "ENA-USD",    # ENAUSDT (Not: Yahoo'da listelenmeyebilir)
+    "WTAO-USD",    # TAOUSDT (Bittensor)
+    "WLD-USD",    # WLDUSDT
+    "ETC-USD",    # ETCUSDT
+    "NEAR-USD",   # NEARUSDT
+    "APT-USD",    # APTUSDT
+    "OP-USD",     # OPUSDT
+    "ICP-USD",    # ICPUSDT
+    "FIL-USD",    # FILUSDT
+    "POL-USD",    # POLUSDT (Not: Polygon Ecosystem Token)
+    "ENS-USD",    # ENSUSDT
+    "BNSOL-USD",  # BNSOLUSDT (Not: Yahoo'da karşılığı yok)
+    "ALGO-USD",   # ALGOUSDT
+    "VET-USD",    # VETUSDT
+    "ATOM-USD",   # ATOMUSDT
+    "RAY-USD",    # RAYUSDT (Not: Raydium)
+    "PENGU34466-USD",  # PENGUUSDT (Not: Yahoo'da listelenmeyebilir)
+    "RNDR-USD",   # RENDERUSDT
+    "SEI-USD",    # SEIUSDT
+    "FET-USD",    # FETUSDT
+    "BONK-USD",   # BONKUSDT
+    "BFUSD-USD",  # BFUSDUSDT (Not: Yahoo'da karşılığı yok)
+    "JTO-USD",    # JTOUSDT (Not: Jito)
+    "JUP-USD",    # JUPUSDT
+    "TIA-USD",    # TIAUSDT
+    "PENDLE-USD", # PENDLEUSDT
+    "FDUSD-USD",  # FDUSDUSDT (Not: Yahoo'da karşılığı yok)
+    "FORM-USD",   # FORMUSDT (Not: Yahoo'da listelenmeyebilir)
+    "YGG-USD",    # YGGUSDT
+    "LDO-USD",    # LDOUSDT
+    "AXL-USD"     # AXLUSDT
 
     # 🔹 Gaming / Metaverse / NFT Related
     "SAND-USD", "AXS-USD", "GALA-USD", "ENJ-USD", "ILV-USD", "IMX-USD", "RARI-USD",
@@ -942,7 +962,7 @@ if __name__ == "__main__":
     "RNDR-USD", "NMR-USD", "CTX-USD", "ALI-USD",
 
     # 🔹 Layer 2 / Rollups / Infrastructure
-    "ZKS-USD", "STARK-USD", "LOOM-USD", "OMG-USD",
+    "ZKS-USD", "STRK22691-USD", "LOOM-USD", "OMG-USD",
 
     # 🔹 Oracle & Data Sharing
     "BAND-USD", "DIA-USD", "UMA-USD", "TRB-USD",
@@ -957,22 +977,54 @@ if __name__ == "__main__":
     "ONDO-USD", "CFG-USD", "RIO-USD", "SKY-USD", "OM-USD",
 
     # 🔹 DeFi Lending / Borrowing
-    "COMP-USD", "MORPHO-USD", "ALCX-USD", "TRU-USD", "RDNT-USD", "SLND-USD", "BZRX-USD",
+    "COMP-USD", "MORPHO34104-USD", "ALCX-USD", "TRU-USD", "RDNT-USD", "SLND-USD", "BZRX-USD",
 
     # 🔹 Liquid Staking (LST) tokenleri
     "RPL-USD", "ANKR-USD", "ETHFI-USD", "REZ-USD", "PSTAKE-USD", "SWETH-USD", "PZETH-USD",
 
-    # 🔹 İşlem Hacmine Göre İlk 37 Coin (24‑s saatlik hacme göre)
-    "USDT-USD", "BTC-USD", "ETH-USD", "DAI-USD", "USDC-USD", "FDUSD-USD", "XRP-USD",
-    "SOL-USD", "BNB-USD", "ALGO-USD", "ADA-USD", "TRX-USD", "DOGE-USD", "WYETH-USD",
-    "LDO-USD", "STETH-USD", "RPL-USD", "ANKR-USD", "JTO-USD", "WBTC-USD",
-    "ALGO-USD", "ADA-USD", "FTM-USD", "LINK-USD", "MATIC-USD", "AVAX-USD",
-    "SHIB-USD", "UNI-USD", "ICP-USD", "AXS-USD", "SAND-USD", "FIL-USD",
-    "VET-USD", "MKR-USD", "EOS-USD", "XTZ-USD", "XLM-USD",
-
+    # 🔹 İşlem Hacmine Göre İlk 83 Coin (24‑s saatlik hacme göre)
+    'ADA-USD', 'BTC-USD', 'XRP-USD', 'BNB-USD', 'SOL-USD', 'USDT-USD', 'LTC-USD', 'ETH-USD',
+      'DOGE-USD', 'TRX-USD', 'SSWP-USD', 'PUMP36507-USD', 'PEPE-USD', 'AVAX-USD',
+        'ENA-USD', 'LINK-USD', 'BCH-USD', 'USD.AX', 'MNT27075-USD', 'APT-USD', 'MAGIC14783-USD', 'XLM-USD',
+          'BONK-USD', 'FLR-USD', 'HBAR-USD', 'AAVE-USD', 'ILV-USD', 'CRV-USD', 'TON-USD', 'HYPE32196-USD', 
+          'RARE11294-USD', 'ECOIN-USD', 'FARTCOIN-USD', 'CFX-USD', 'DOGWIFHAT-USD', 'ARB-USD', 'DOT-USD', 
+          'WLD-USD', 'OP-USD', 'KERNEL-USD', 'NEAR-USD', 'RED21707-USD', 'ZEC-USD', 'SOL28825-USD', 'SPC-USD',
+            'SHIB-USD', 'SEI-USD', 'INJ-USD', 'GAS-USD', 'XMR-USD', 'G7-USD', 'ATOM-USD', 'TOWNS-USD',
+              'ONDO-USD', 'ZORA35931-USD', 'DAI-USD', 'FIL-USD', 'TAO22974-USD', 'ERA37374-USD', 'FLOKI-USD', 'WETH-USD',
+                'LUNA33543-USD', 'TIA-USD', 'IONX-USD', 'ALGO-USD', 'OM-USD', 'MKR-USD', 'ETHFI-USD', 
+                  'SAHARA-USD', 'CAKE-USD', 'SPX28081-USD', 'UGOLD-USD', 'HYPER36281-USD', 'RENDER-USD', 'RUNE-USD',
+                    'GALA-USD', 'PEANUT-USD',   'EGL1-USD', 'PACUSA.SW', 'AB36894-USD', 'LIDO-USD.AS',
+                      'MAPLE-USD', 'PENDLE-USD', 'KAS-USD', 'FTN-USD',  'XTZ-USD', 'RAY-USD', 
+                      'PIN34017-USD', 'MYRUSD=X','USDT-USD', 'HYPE32196-USD', 'XLM-USD', 'SSWP-USD', 'HBAR-USD',
+                        'USD.AX', 'XMR-USD', 'ENA-USD', 'CRO-USD', 'ETH-USD', 'MNT27075-USD', 'TAO22974-USD',
+                          'PIN34017-USD', 'APT-USD', 'PENGU34525-USD', 'ARB-USD', 'ALGO-USD', 'DOT-USD', 'ATOM-USD',
+                            'KAS-USD', 'WLD-USD', 'FTN-USD', 'ECOIN-USD', 'VET-USD', 'GT-USD', 'SPX28081-USD', 'FIL-USD',
+                              'QNT-USD', 'JUP-USD', 'INJ-USD', 'OP-USD', 'CRV-USD', 'TIA-USD', 'LIDO-USD.AS', 'FLR-USD',
+                                'PUMP36507-USD', 'CFX-USD', 'SOL28825-USD', 'IMX10603-USD', 'CAKE-USD', 'XTZ-USD', 'PACUSA.SW', 
+                                'TDROP-USD', 'STX4847-USD', 'SUPERGROK-USD', 'LUNA33543-USD', 'RAY-USD', 'JASMY-USD', 'M35491-USD',
+                                  'MORPHO34104-USD', 'ZEC-USD', 'JTO-USD', 'CHRETT-USD', 'BTTOLD-USD', 'SD-USD', 'B-USD', 'WAL36119-USD',
+                                    'MANA-USD', 'KTA-USD', 'HNT-USD', 'RYOSHI11283-USD', 'BTC-USD',  'COMP5692-USD',
+                                      'STRK22691-USD', 'TEL-USD', 'ETHFI-USD', 'EFR-USD', 'AR-USD', 'RUNE-USD', 'BDX-USD', 'APE-USD',
+                                        'SUPER8290-USD', 'XCN18679-USD', 'NFT9816-USD', 'TREE37495-USD', 'EGLD-USD', 'XEC-USD', 'ZK24091-USD',
+                                          'TRIP35555-USD', 'CHZ-USD', 'RON14101-USD', 'ATH30083-USD', 'MOVE32452-USD', 'GNO-USD', 'AXL17799-USD',
+                                            'DOGE-USD', 'BABYPOPCAT-USD', 'TRC-USD', 'SNEK25264-USD', 'CTC-USD', 'STMATIC-USD', 'DRIFT31278-USD',
+                                              'CAT32724-USD', 'ZORA35931-USD', 'TOSHI27750-USD', 'DCR-USD', 'OM-USD', 'LPT-USD', '0P00019LJQ', 'WIOTX-USD',
+                                                'KSM-USD', 'ABTC-USD.SW', 'BORG-USD', 'BERA-USD', 'GLM-USD', 'PROVE-USD', 'SFP-USD', 'GRASS32276-USD',
+                                                 'ARKM-USD', 'CBU-USD', 'GLS-USD', 'BABI-USD', 'TRAC-USD', 'ZIL-USD', 'AGENTFUN-USD', 'SNX-USD', '0XBTC-USD',
+                                                   'NXS-USD', 'RVN-USD', 'FTMO-USD', 'ORO14950-USD', 'EUL-USD', 'NOT-USD', 'ZRO26997-USD', 'ZETA-USD',
+                                                     'WASTR-USD', 'YFI-USD', 'UBFC.HA', 'XMT-USD', 'GMX11857-USD', 'SGR-U.TO', 'ETHEREUM27840-USD',
+                                                       'ILV-USD', 'SC-USD', 'T-USD', 'ETHW-USD', 'POLYX-USD', 'AURA36544-USD', 'CFG-USD',
+                                                         'MGG36318-USD', 'VRSC-USD', 'ELF-USD', 'FBTC-USD', 'ONE3945-USD', 'DGB-USD', 'GIGA30063-USD'
     # 🔹 Alternative Assets
-    "USDT-EUR", "XAUT-USD",
-    "BAR", "IAU", "SLV", "GLDM", "UUP", "PAXG-USD", "SPDR", "KRBN",
+    "USDT-EUR", "XAUT-USD","UBFC.HA",
+    "WTAO-USD",
+    "^CASE30",
+    "MMM",
+    "AXL-USD",
+    "SAND-USD",
+    "USDJPY=X",
+    "STX-USD"
+    "BAR", "IAU", "SLV", "GLDM", "UUP", "PAXG-USD", "SPY","GLD", "KRBN",
 
     # 🔹 Temettü Hisseleri (Long-Term)
     "CVX", "T", "VZ", "MMM", "IBM", "XOM",
@@ -983,13 +1035,12 @@ if __name__ == "__main__":
 
     # 🔹 Hedge Fon İlgi Alanı (Spekülatif Hisseler)
     "PLTR", "RIVN", "HOOD", "LCID", "SOFI", "AFRM", "DNA", "FUBO",
-    "BBBYQ", "GME", "AMC", "BB"
-    ]
-
+     "GME", "AMC", "BB"
+    ])
     # Initialize optimized scraper
     scraper = OptimizedFinancialScraper(
         min_days_required=100,  # Minimum 1001 days required
-        max_workers=5,           # Parallel workers
+        max_workers=7,           # Parallel workers
         request_timeout=30       # 30 second timeout
     )
     
@@ -997,11 +1048,11 @@ if __name__ == "__main__":
     output_dir = "optimized_financial_data"
     os.makedirs(output_dir, exist_ok=True)
     
-    print(" OPTİMİZE EDİLMİŞ FİNANSAL VERİ ÇEKME SİSTEMİ v2.0")
-    print(f"{len(veriler)} sembol için veri çekilecek")
-    print(f" Minimum {scraper.min_days_required} günlük veri gerekli")
-    print(" Paralel işleme ve gelişmiş hata yönetimi aktif")
-
+    print("🚀 OPTİMİZE EDİLMİŞ FİNANSAL VERİ ÇEKME SİSTEMİ v2.0")
+    print(f"🎯 {len(veriler)} sembol için veri çekilecek")
+    print(f"📊 Minimum {scraper.min_days_required} günlük veri gerekli")
+    print("🔄 Paralel işleme ve gelişmiş hata yönetimi aktif")
+    
     # Validate symbol coverage before starting
     coverage = scraper.validate_symbol_coverage(veriler)
     
@@ -1017,35 +1068,35 @@ if __name__ == "__main__":
     ]
     
     if unsupported_symbols:
-        print(f"\n⚠  Düşük destek seviyeli semboller: {len(unsupported_symbols)}")
+        print(f"\n⚠️  Düşük destek seviyeli semboller: {len(unsupported_symbols)}")
         for symbol in unsupported_symbols:
             print(f"   - {symbol}: {coverage[symbol]['total_sources']}/3 kaynak")
     
-    print(f"\n Yüksek başarı şansı olan semboller: {len(supported_symbols)}")
+    print(f"\n✅ Yüksek başarı şansı olan semboller: {len(supported_symbols)}")
     
     # Start optimized download process
     successful, failed = scraper.download_all_symbols_optimized(
         symbols=veriler,  # Use all symbols, let the system handle fallbacks
         target_days=8000,  # Target 2000 days for comprehensive historical data
-        output_file=f"{output_dir}/comprehensive_market_data_200_plus_features.csv",
+        output_file=f"{output_dir}/comprehensive_market_data_400_plus_features.csv",
         batch_processing=True  # Enable batch processing instead of parallel
     )
     
     # Final results
-    print(f"\n OPTİMİZE EDİLMİŞ İŞLEM TAMAMLANDI!")
-    print(f" Başarılı semboller: {len(successful)}")
-    print(f" Başarısız semboller: {len(failed)}")
-    print(f" Başarı oranı: %{(len(successful)/(len(successful)+len(failed)))*100:.1f}")
+    print(f"\n🏁 OPTİMİZE EDİLMİŞ İŞLEM TAMAMLANDI!")
+    print(f"✅ Başarılı semboller: {len(successful)}")
+    print(f"❌ Başarısız semboller: {len(failed)}")
+    print(f"📈 Başarı oranı: %{(len(successful)/(len(successful)+len(failed)))*100:.1f}")
     
     if successful:
-        print(f"\n BAŞARILI SEMBOLLER:")
+        print(f"\n🎯 BAŞARILI SEMBOLLER:")
         for i, symbol in enumerate(successful, 1):
             print(f"   {i:2d}. {symbol}")
     
     if failed:
-        print(f"\n BAŞARISIZ SEMBOLLER:")
+        print(f"\n❌ BAŞARISIZ SEMBOLLER:")
         for i, symbol in enumerate(failed, 1):
             print(f"   {i:2d}. {symbol}")
     
-    print(f"\n Veri dosyası: {output_dir}/comprehensive_market_data_200_plus_features.csv")
-    print(" Optimized scraper tamamlandı!")
+    print(f"\n💾 Veri dosyası: {output_dir}/comprehensive_market_data_400_plus_features.csv")
+    print("🔥 Optimized scraper tamamlandı!")
