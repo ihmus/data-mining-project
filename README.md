@@ -57,11 +57,11 @@ Bu proje, kripto para piyasalarının yüksek volatiliteli yapısını veri made
 Aşama 1  ████████████████████  ✅ Problem Tanımı & Hedef Belirleme
 Aşama 2  ████████████████████  ✅ Veri Toplama (Multi-API Scraper)
 Aşama 3  ████████████████████  ✅ Keşifsel Analiz (EDA)
-Aşama 4  ████████░░░░░░░░░░░░  ⏳ Veri Ön İşleme & Feature Engineering
-Aşama 5  ░░░░░░░░░░░░░░░░░░░░  🔜 Modelleme (LSTM + RF/XGBoost)
-Aşama 6  ░░░░░░░░░░░░░░░░░░░░  🔜 Değerlendirme & Metrikler
-Aşama 7  ░░░░░░░░░░░░░░░░░░░░  🔜 Görselleştirme
-Aşama 8  ░░░░░░░░░░░░░░░░░░░░  🔜 Raporlama & Sonuç
+Aşama 4  ████████████████████  ✅ Veri Ön İşleme & Feature Engineering
+Aşama 5  ████████████████████  ✅ Modelleme (LSTM + RF/XGBoost)
+Aşama 6  ████████████████████  ✅ Değerlendirme & Metrikler
+Aşama 7  ████████████████████  ✅ Görselleştirme
+Aşama 8  ████████░░░░░░░░░░░░  ⏳ Raporlama & Sonuç
 ```
 
 ---
