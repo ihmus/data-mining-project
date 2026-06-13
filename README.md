@@ -364,6 +364,11 @@ Kronolojik Bölme (data leakage önlenir):
 | XGBoost | BTC-USD | T+1 | — | — | — | — |
 | Random Forest | BTC-USD | T+1 | — | — | — | — |
 
+> 📈 **Uygulama grafik sonuçları**  
+ Örneğin LDO-USD tahmin sonuçlarına bakıldığında bazı günlerde tahminde küçük tutarsızlıklar görülse de, genel gidişat doğru tahmin edilebilmiştir.  
+> Aşağıda model çıktılarına ait örnek bir ekran görüntüsü yer almaktadır.
+
+![Model tahmin grafiği](images/ldo_usd.png)
 ---
 
 ## 📚 Referanslar
