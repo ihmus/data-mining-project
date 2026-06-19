@@ -150,15 +150,46 @@ pip install -r requirements.txt
 
 **`requirements.txt`**
 ```
+# ──────────────────────────────────────────────
+#  Web App & Core Framework
+# ──────────────────────────────────────────────
+streamlit>=1.25.0
+streamlit-option-menu>=0.3.6        # (opsiyonel, sidebar için)
+
+# ──────────────────────────────────────────────
+#  Data Processing & Analysis
+# ──────────────────────────────────────────────
 pandas>=1.5.0
 numpy>=1.23.0
+python-dateutil>=2.8.2
+
+# ──────────────────────────────────────────────
+#  Web Scraping & API (veri çekme modülü için)
+# ──────────────────────────────────────────────
 requests>=2.28.0
+beautifulsoup4>=4.11.0              # (opsiyonel, scraping için)
+lxml>=4.9.0                         # (opsiyonel, HTML ayrıştırma)
+
+# ──────────────────────────────────────────────
+#  Machine Learning & Feature Selection
+# ──────────────────────────────────────────────
 scikit-learn>=1.2.0
-tensorflow>=2.12.0      # LSTM için
-xgboost>=1.7.0
+xgboost>=1.7.0                      # (notebook/model eğitiminde)
+tensorflow>=2.12.0                  # (LSTM kullanımı için, opsiyonel)
+joblib>=1.2.0                       # (model kaydetme için pickle alternatifi)
+
+# ──────────────────────────────────────────────
+#  Visualization & Plotting
+# ──────────────────────────────────────────────
 matplotlib>=3.6.0
-seaborn>=0.12.0
+seaborn>=0.12.0                     # (istatistiksel görselleştirme için)
+
+# ──────────────────────────────────────────────
+#  Development & Notebooks
+# ──────────────────────────────────────────────
 jupyter>=1.0.0
+ipykernel>=6.20.0
+ipython>=8.10.0
 ```
 
 ---
