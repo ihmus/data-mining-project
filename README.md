@@ -61,7 +61,7 @@ Aşama 4  ████████████████████  ✅ Veri
 Aşama 5  ████████████████████  ✅ Modelleme (LSTM + RF/XGBoost)
 Aşama 6  ████████████████████  ✅ Değerlendirme & Metrikler
 Aşama 7  ████████████████████  ✅ Görselleştirme
-Aşama 8  ████████░░░░░░░░░░░░  ⏳ Raporlama & Sonuç
+Aşama 8  ████████████████████  ✅ Raporlama & Sonuç
 ```
 
 ---
