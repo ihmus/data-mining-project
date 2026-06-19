@@ -1,518 +1,405 @@
 # 📈 Kripto Para Fiyat Tahmini
-### Çok Kaynaklı API Entegrasyonu ile Kapsamlı Finansal Veri Toplama ve Makine Öğrenmesi Tabanlı Fiyat Tahmini
 
-> **Lisans — Veri Madenciliği Dersi Projesi**  
-> Durum: `Aşama 1–3 Tamamlandı` · `Aşama 4  Devam Ediyor`
+## Çok Kaynaklı API Entegrasyonu ile Kapsamlı Finansal Veri Toplama ve Makine Öğrenmesi Tabanlı Fiyat Tahmini
 
----
-
-## 📋 İçindekiler
-
-- [Proje Hakkında](#-proje-hakkında)
-- [Araştırma Sorusu](#-araştırma-sorusu)
-- [Proje Aşamaları](#-proje-aşamaları)
-- [Veri Kaynakları](#-veri-kaynakları)
-- [Sistem Mimarisi](#-sistem-mimarisi)
-- [Kurulum](#-kurulum)
-- [Kullanım](#-kullanım)
-- [Desteklenen Semboller](#-desteklenen-semboller)
-- [Teknik Detaylar](#-teknik-detaylar)
-- [Proje Yapısı](#-proje-yapısı)
-- [Sonuçlar](#-sonuçlar)
-- [Katkıda Bulunma](#-katkıda-bulunma)
+> **Veri Madenciliği Lisans Projesi**
+> Durum: **Aşama 1–5 Tamamlandı** | **Aşama 6–8 Devam Ediyor**
 
 ---
 
-## 🎯 Proje Hakkında
+# 📋 İçindekiler
 
-Bu proje, kripto para piyasalarının yüksek volatiliteli yapısını veri madenciliği yöntemleriyle analiz ederek güvenilir fiyat tahmin modelleri geliştirmeyi hedeflemektedir.
-
-**Yahoo Finance**, **Binance** ve **CoinGecko** API'lerinden otomatik olarak çekilen 2000 günlük (≈5.5 yıl) tarihsel veri üzerinde LSTM ve ensemble yöntemleri (Random Forest / XGBoost) karşılaştırmalı olarak uygulanmaktadır.
-
-### Neden Bu Problem?
-
-| Faktör | Açıklama |
-|--------|----------|
-| 🕐 7/24 Piyasa | Geleneksel piyasalardan farklı olarak kesintisiz işlem |
-| 📊 Veri Erişimi | Açık API'ler sayesinde yüksek kaliteli tarihsel veri |
-| ⚡ Yüksek Volatilite | Tahmin zorluğu nedeniyle akademik ilgi yoğun |
-| 🔗 Çok Kaynak | API entegrasyonu ile eksik veri problemi minimize ediliyor |
-
----
-
-## ❓ Araştırma Sorusu
-
-> *Çoklu finansal API kaynaklarından elde edilen 2000 günlük tarihsel fiyat verisi kullanılarak, kripto para birimlerinin gelecek fiyat hareketleri ne ölçüde tahmin edilebilir? Hangi veri madenciliği modeli bu görev için en yüksek başarımı sağlar?*
-
-**Tahmin Hedefleri:**
-- `T+1` — Yarınki kapanış fiyatı tahmini (Regresyon)
-- `T+7` — 7 günlük fiyat tahmini (Regresyon)
-- `Yön Tahmini` — Fiyat artış/düşüş sınıflandırması (Binary Classification)
+* Proje Hakkında
+* Araştırma Sorusu
+* Proje Aşamaları
+* Veri Kaynakları
+* Sistem Mimarisi
+* Kurulum
+* Kullanım
+* Desteklenen Varlıklar
+* Teknik Detaylar
+* Proje Yapısı
+* Sonuçlar
+* Referanslar
+* Sorumluluk Reddi
 
 ---
 
-## 🗺 Proje Aşamaları
+# 🎯 Proje Hakkında
 
-```
-Aşama 1  ████████████████████  ✅ Problem Tanımı & Hedef Belirleme
-Aşama 2  ████████████████████  ✅ Veri Toplama (Multi-API Scraper)
-Aşama 3  ████████████████████  ✅ Keşifsel Analiz (EDA)
-Aşama 4  ████████████████████  ✅ Veri Ön İşleme & Feature Engineering
-Aşama 5  ████████████████████  ✅ Modelleme (LSTM + RF/XGBoost)
-Aşama 6  ████████████████████  ✅ Değerlendirme & Metrikler
-Aşama 7  ████████████████████  ✅ Görselleştirme
-Aşama 8  ████████████████████  ✅ Raporlama & Sonuç
-```
+Bu proje, finansal zaman serisi verilerini çok kaynaklı API entegrasyonu ile toplayarak, makine öğrenmesi tabanlı fiyat tahmin modelleri geliştirmeyi ve bu modelleri interaktif bir alım–satım simülasyonu ile birleştirmeyi amaçlamaktadır.
 
----
+Sistem;
 
-## 🌐 Veri Kaynakları
+* Yahoo Finance
+* Binance
+* CoinGecko
 
-| API | Kapsam | Öncelik | Limit |
-|-----|--------|---------|-------|
-| **Yahoo Finance** | Hisse, endeks, döviz, emtia, kripto | Birincil | Ücretsiz / rate limit var |
-| **Binance API** | Tüm kripto/USDT pariteleri | İkincil | 1000 mum/istek |
-| **CoinGecko** | Kripto para birimleri | Yedek | 365 gün / ücretsiz |
+kaynaklarından tarihsel fiyat verilerini otomatik olarak toplamaktadır.
 
-### Veri Seti Özellikleri
+Toplanan veriler üzerinde:
 
-```
-📅 Zaman Aralığı  : ~2019 – 2026 (2000 takvim günü)
-📊 Format         : CSV — Date + sembol kolonları (pivot yapı)
-🎯 Min. Eşik      : Her sembol için ≥ 1001 gerçek işlem günü
-⚡ Gerçek Zamanlı : Her çalıştırmada bugünün anlık fiyatı eklenir
-🔧 Eksik Veri     : Hafta sonu / tatil → forward-fill
-```
+* Veri temizleme
+* Eksik veri tamamlama
+* Gecikmeli öznitelik (Lag Feature) üretimi
+* Korelasyon tabanlı öznitelik seçimi
+* Random Forest
+* Gradient Boosting
+
+algoritmaları uygulanmaktadır.
+
+Eğitilen modeller Streamlit tabanlı arayüz üzerinden test edilmekte ve oluşturulan işlem sinyalleri Buy & Hold stratejisi ile karşılaştırılmaktadır.
 
 ---
 
-## 🏗 Sistem Mimarisi
+# ❓ Araştırma Sorusu
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                OptimizedFinancialScraper                │
-│                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
-│  │ Yahoo Finance│  │   Binance    │  │  CoinGecko   │   │
-│  │  (Birincil)  │→ │  (İkincil)   │→ │   (Yedek)    │   │
-│  └──────────────┘  └──────────────┘  └──────────────┘   │
-│           │                │                │           │
-│           └────────────────┴────────────────┘           │
-│                            │                            │
-│              ┌─────────────▼───────────────┐            │
-│              │   _validate_and_clean_data  │            │
-│              │  • Duplicate removal        │            │
-│              │  • Price > 0 filter         │            │
-│              │  • Outlier detection (>300%)│            │
-│              │  • OHLC consistency check   │            │
-│              └─────────────┬───────────────┘            │
-│                            │                            │
-│              ┌─────────────▼───────────────┐            │
-│              │  _fill_weekend_gaps_enhanced│            │
-│              │  • Forward-fill OHLC        │            │
-│              │  • Volume → 0 for non-trade │            │
-│              └─────────────┬───────────────┘            │
-│                            │                            │
-│              ┌─────────────▼──────────────┐             │
-│              │     CSV Output (Merged)    │             │
-│              │  + Real-time price append  │             │
-│              └────────────────────────────┘             │
-└─────────────────────────────────────────────────────────┘
-```
+**Çoklu finansal veri kaynaklarından elde edilen tarihsel fiyat verileri ve gecikmeli öznitelikler kullanılarak kripto para fiyatları ne ölçüde tahmin edilebilir?**
 
-### Hata Yönetimi & Dayanıklılık
+Bu kapsamda aşağıdaki tahmin ufukları incelenmektedir:
 
-- **Exponential Backoff** — Her başarısız denemede bekleme süresi katlanır (max 30s)
-- **HTTP 429 Yönetimi** — Rate limit algılandığında otomatik bekleme
-- **User-Agent Rotasyonu** — Bot tespitini engellemek için dinamik başlık değişimi
-- **Batch Processing** — 5'li gruplar, grup arası ~2–3s bekleme
-- **Graceful Shutdown** — `Ctrl+C` ile mevcut veriler kaydedilerek güvenli çıkış
-- **Bağlantı Havuzu** — `pool_connections=15`, `pool_maxsize=30`
+| Tahmin Ufku | Açıklama       |
+| ----------- | -------------- |
+| T+3         | 3 Gün Sonrası  |
+| T+7         | 7 Gün Sonrası  |
+| T+12        | 12 Gün Sonrası |
+| T+15        | 15 Gün Sonrası |
+| T+30        | 30 Gün Sonrası |
 
 ---
 
-## 🚀 Kurulum
+# 🗺️ Proje Aşamaları
 
-### Gereksinimler
+| Aşama                             | Durum |
+| --------------------------------- | ----- |
+| Problem Tanımı ve Hedef Belirleme | ✅     |
+| Veri Toplama (Multi-API)          | ✅     |
+| Keşifsel Veri Analizi (EDA)       | ✅     |
+| Öznitelik Mühendisliği            | ✅     |
+| Model Eğitimi                     | ✅     |
+| Performans Değerlendirme          | ⏳     |
+| Simülasyon ve Görselleştirme      | ⏳     |
+| Sonuç ve Raporlama                | ⏳     |
+
+---
+
+# 🌐 Veri Kaynakları
+
+| Kaynak        | Amaç                                |
+| ------------- | ----------------------------------- |
+| Yahoo Finance | Hisse, Endeks, Döviz, Emtia, Kripto |
+| Binance API   | Kripto Para Verileri                |
+| CoinGecko API | Yedek Kripto Veri Kaynağı           |
+
+## Veri Özellikleri
+
+* Yaklaşık 2000 günlük veri
+* Günlük kapanış fiyatları
+* Otomatik güncelleme
+* Eksik veri düzeltme
+* Çoklu API yedekleme mekanizması
+
+---
+
+# 🏗️ Sistem Mimarisi
+
+## Veri Toplama Katmanı
+
+Yahoo Finance → Binance → CoinGecko
+
+Kaynaklardan veri çekilir ve doğrulama işlemlerinden geçirilir.
+
+### Uygulanan Kontroller
+
+* Yinelenen kayıtların silinmesi
+* Sayısal veri dönüşümü
+* Negatif veya sıfır fiyatların temizlenmesi
+* Aykırı değer filtreleme
+* OHLC tutarlılık kontrolleri
+
+---
+
+## Veri Ön İşleme Katmanı
+
+### Eksik Veri Doldurma
+
+1. Başlangıç eksikleri → 0
+2. Enterpolasyon
+3. Forward Fill
+
+### Özellik Üretimi
+
+Her sütun için:
+
+* lag_1
+* lag_2
+* lag_3
+* lag_4
+* lag_5
+* lag_6
+* lag_7
+
+oluşturulur.
+
+Toplamda 200’den fazla öznitelik elde edilmektedir.
+
+---
+
+## Öznitelik Seçimi
+
+Yöntem:
+
+SelectKBest + r_regression
+
+Amaç:
+
+Hedef değişken ile en yüksek korelasyona sahip öznitelikleri seçmek.
+
+Seçilen öznitelik sayısı:
+
+300
+
+---
+
+## Model Eğitimi
+
+### Random Forest
+
+* n_estimators = 3000
+* random_state = 42
+* n_jobs = -1
+
+### Gradient Boosting
+
+* n_estimators = 7000
+* learning_rate = 0.005
+* max_depth = 7
+* subsample = 0.9
+* min_samples_split = 3
+* min_samples_leaf = 3
+
+---
+
+# 🚀 Kurulum
+
+## Repository'i Klonlayın
 
 ```bash
-Python >= 3.8
+git clone https://github.com/ihmus/data-mining-project.git
+cd data-mining-project
 ```
 
-### Bağımlılıkları Yükle
+## Gereksinimleri Kurun
 
 ```bash
-git clone https://github.com/kullanici-adi/kripto-fiyat-tahmini.git
-cd kripto-fiyat-tahmini
-
 pip install -r requirements.txt
 ```
 
-**`requirements.txt`**
+---
+
+# 💻 Kullanım
+
+## 1. Veri Toplama
+
+```bash
+python src/datamining.py
 ```
-# ──────────────────────────────────────────────
-#  Web App & Core Framework
-# ──────────────────────────────────────────────
-streamlit>=1.25.0
-streamlit-option-menu>=0.3.6        # (opsiyonel, sidebar için)
 
-# ──────────────────────────────────────────────
-#  Data Processing & Analysis
-# ──────────────────────────────────────────────
-pandas>=1.5.0
-numpy>=1.23.0
-python-dateutil>=2.8.2
+Çıktı:
 
-# ──────────────────────────────────────────────
-#  Web Scraping & API (veri çekme modülü için)
-# ──────────────────────────────────────────────
-requests>=2.28.0
-beautifulsoup4>=4.11.0              # (opsiyonel, scraping için)
-lxml>=4.9.0                         # (opsiyonel, HTML ayrıştırma)
-
-# ──────────────────────────────────────────────
-#  Machine Learning & Feature Selection
-# ──────────────────────────────────────────────
-scikit-learn>=1.2.0
-xgboost>=1.7.0                      # (notebook/model eğitiminde)
-tensorflow>=2.12.0                  # (LSTM kullanımı için, opsiyonel)
-joblib>=1.2.0                       # (model kaydetme için pickle alternatifi)
-
-# ──────────────────────────────────────────────
-#  Visualization & Plotting
-# ──────────────────────────────────────────────
-matplotlib>=3.6.0
-seaborn>=0.12.0                     # (istatistiksel görselleştirme için)
-
-# ──────────────────────────────────────────────
-#  Development & Notebooks
-# ──────────────────────────────────────────────
-jupyter>=1.0.0
-ipykernel>=6.20.0
-ipython>=8.10.0
+```text
+comprehensive_market_data_2000_days.csv
 ```
 
 ---
 
-## 💻 Kullanım
-
-### 1. Veri Toplama
+## 2. Model Eğitimi
 
 ```bash
-python datamining.py
+jupyter notebook src/notebooks/rf_api3_.ipynb
 ```
 
-Tüm semboller için veri çekilir ve `optimized_financial_data/comprehensive_market_data_2000_days.csv` dosyasına kaydedilir.
+Notebook içerisinde:
 
-**Özelleştirilmiş kullanım:**
+* Lag özellikleri oluşturulur
+* Özellik seçimi yapılır
+* Model eğitilir
+* Model kaydedilir
+
+---
+
+## 3. Streamlit Arayüzü
+
+```bash
+streamlit run src/app.py
+```
+
+Kullanıcı;
+
+* Sembol seçer
+* Tahmin periyodu belirler
+* İşlem aralığı seçer
+* Simülasyonu çalıştırır
+
+---
+
+# 📦 Desteklenen Varlıklar
+
+## Endeksler
+
+* S&P500
+* NASDAQ
+* Dow Jones
+* DAX
+* FTSE
+* Nikkei
+* BIST100
+
+## Hisseler
+
+* AAPL
+* MSFT
+* GOOGL
+* AMZN
+* NVDA
+* TSLA
+* META
+* JPM
+* JNJ
+
+## Döviz ve Emtialar
+
+* EUR/USD
+* GBP/USD
+* USD/JPY
+* Altın
+* Gümüş
+* Ham Petrol
+* Doğalgaz
+* Bakır
+
+## Kripto Paralar
+
+### Majör
+
+* BTC
+* ETH
+* XRP
+* SOL
+* BNB
+* DOGE
+* AVAX
+
+### Diğer
+
+* LINK
+* DOT
+* UNI
+* NEAR
+* APT
+* OP
+* ARB
+* BCH
+* FIL
+* SHIB
+* PEPE
+* SUI
+* STX
+* WLD
+* ZETA
+
+ve daha fazlası.
+
+---
+
+# 🔧 Teknik Detaylar
+
+## Eğitim/Test Ayrımı
 
 ```python
-from scraper import OptimizedFinancialScraper
-
-scraper = OptimizedFinancialScraper(
-    min_days_required=1001,   # Minimum işlem günü
-    max_workers=5,            # Paralel worker sayısı
-    request_timeout=30        # İstek timeout (saniye)
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    train_size=0.83,
+    random_state=35
 )
-
-# Belirli semboller için veri çek
-symbols = ["BTC-USD", "ETH-USD", "SOL-USD"]
-
-successful, failed = scraper.download_all_symbols_optimized(
-    symbols=symbols,
-    target_days=2000,
-    output_file="my_data.csv",
-    batch_processing=True
-)
-
-print(f"Başarılı: {len(successful)} | Başarısız: {len(failed)}")
 ```
 
-### 2. Kaynak Kapsamını Kontrol Et
+## Değerlendirme Metrikleri
 
-```python
-coverage = scraper.validate_symbol_coverage(symbols)
-# Çıktı: Her sembol için Yahoo/Binance/CoinGecko desteği tablosu
-```
-
-### 3. Keşifsel Analiz
-
-```bash
-jupyter notebook notebooks/01_exploratory_analysis.ipynb
-```
-
-### 4. Model Eğitimi *(yakında)*
-
-```bash
-python train.py --model lstm --symbol BTC-USD --horizon 1
-python train.py --model xgboost --symbol BTC-USD --horizon 7
-```
+| Metrik | Açıklama                |
+| ------ | ----------------------- |
+| R²     | Açıklanan varyans oranı |
+| MSE    | Ortalama karesel hata   |
+| MAE    | Ortalama mutlak hata    |
 
 ---
 
-## 📦 Desteklenen Semboller
+# 📁 Proje Yapısı
 
-<details>
-<summary><b>Hisse Senedi Endeksleri (11)</b></summary>
-
-| Sembol | Tanım |
-|--------|-------|
-| `^GSPC` | S&P 500 |
-| `^DJI` | Dow Jones |
-| `^IXIC` | NASDAQ Composite |
-| `^NDX` | NASDAQ 100 |
-| `^FTSE` | FTSE 100 |
-| `^GDAXI` | DAX |
-| `^N225` | Nikkei 225 |
-| `^STOXX50E` | Euro Stoxx 50 |
-| `000001.SS` | Shanghai Composite |
-| `^HSI` | Hang Seng |
-| `XU100.IS` | BIST 100 |
-
-</details>
-
-<details>
-<summary><b>Bireysel Hisseler (10)</b></summary>
-
-`AAPL` `MSFT` `GOOGL` `AMZN` `NVDA` `TSLA` `META` `SPGI` `JPM` `JNJ`
-
-</details>
-
-<details>
-<summary><b>Döviz & Emtia (12)</b></summary>
-
-| Sembol     | Tanım        |
-|------------|--------------|
-| `EURUSD=X` | EUR/USD      |
-| `GBPUSD=X` | GBP/USD      |
-| `USDJPY=X` | USD/JPY      |
-| `GC=F`     | Altın        |
-| `SI=F`     | Gümüş        |
-| `CL=F`     | Ham Petrol   |
-| `NG=F`     | Doğalgaz     |
-| `HG=F`     | Bakır        |
-| `ZC=F`     | Mısır        |
-| `ZS=F`     | Soya Fasulyesi |
-| `ZW=F`     | Buğday       |
-| `DX-Y.NYB` | Dolar Endeksi |
-
-</details>
-
-<details>
-<summary><b>Kripto Para Birimleri (35+)</b></summary>
-
-**Majörler:** `BTC-USD` `ETH-USD` `XRP-USD` `SOL-USD` `BNB-USD` `DOGE-USD` `AVAX-USD`
-
-**DeFi / Layer-1:** `LINK-USD` `DOT-USD` `UNI-USD` `NEAR-USD` `APT-USD` `ARB-USD` `OP-USD`
-
-**Diğerleri:** `BCH-USD` `XLM-USD` `TRX-USD` `ETC-USD` `FIL-USD` `SHIB-USD` `PEPE-USD` `SUI-USD`
-
-**Stablecoin:** `USDT-USD` `USDC-USD` `DAI-USD`
-
-</details>
-
----
-
-## 🔧 Teknik Detaylar
-
-### Veri Temizleme Pipeline
-
-```python
-# Otomatik uygulanan adımlar (_validate_and_clean_data)
-1. df.drop_duplicates(subset=['Date'])          # Tekrar eden tarihler
-2. pd.to_numeric(df[col], errors='coerce')      # Tip dönüşümü
-3. df[df['Close'] > 0]                          # Geçersiz fiyatlar
-4. df[abs(df['pct_change']) < 3.0]              # Aykırı değerler (>%300)
-5. High = max(High, Open, Close)                 # OHLC tutarlılığı
-6. Low  = min(Low,  Open, Close)                 # OHLC tutarlılığı
-```
-
-### Planlanan Feature Engineering
-
-```python
-# Teknik Göstergeler
-- RSI(14), MACD, Bollinger Bands
-- EMA(7), EMA(21), EMA(50)
-
-# Gecikmeli Özellikler
-- lag_1, lag_3, lag_7  (önceki günlerin kapanış fiyatları)
-
-# Volatilite
-- Rolling STD (7, 14, 30 gün)
-- Parkinson Volatility
-
-# Return
-- log_return = log(P_t / P_{t-1})
-```
-
-### Train / Validation / Test Bölme
-
-```
-Kronolojik Bölme (data leakage önlenir):
-
-|──────── %70 Train ────────|── %15 Val ──|── %15 Test ──|
-2019                      2024          2025           2026
-```
-
-### Değerlendirme Metrikleri
-
-| Görev | Metrikler |
-|-------|-----------|
-| Regresyon | MAE, RMSE, R², MAPE |
-| Sınıflandırma | Accuracy, Precision, Recall, F1, ROC-AUC |
-| Özel | Directional Accuracy (yön doğruluğu) |
-
----
-
-## 📁 Proje Yapısı
-
-```
+```text
 .
 ├── images
-│   └── ldo_usd.png
-├── LICENSE
-├── README.md
 ├── results
-│   ├── docs
-│   │   ├── Ara Rapor.pdf
-│   │   ├── Final Raporu.pdf
-│   │   └── KriptoPara_Fiyat_Tahmini_Sunum.pptx
-│   ├── reports
-│   └── visuals
-└── src
-    ├── app.py
-    ├── datamining.py
-    ├── datas
-    │   └── comprehensive_market_data_200_plus_features.csv
-    ├── graphs.py
-    ├── model_karsilastirma.py
-    ├── models
-    │   ├── 0XBTC_USD
-    │   │   └── 7
-    │   │       └── 0XBTC_USD_predict_7.pkl
-    │   ├── AXL17799_USD
-    │   │   └── 7
-    │   │       └── AXL17799_USD_predict_7.pkl
-    │   ├── BERA_USD
-    │   │   └── 7
-    │   │       └── BERA_USD_predict_7.pkl
-    │   ├── BTC_USD
-    │   │   ├── 12
-    │   │   │   └── BTC_USD_predict_12.pkl
-    │   │   ├── 15
-    │   │   │   └── BTC_USD_predict_15.pkl
-    │   │   ├── 3
-    │   │   │   └── BTC_USD_predict_3.pkl
-    │   │   ├── 30
-    │   │   │   └── BTC_USD_predict_30.pkl
-    │   │   └── 7
-    │   │       └── BTC_USD_predict_7.pkl
-    │   ├── CTX_USD
-    │   │   └── 7
-    │   │       └── CTX_USD_predict_7.pkl
-    │   ├── FBTC_USD
-    │   │   └── 7
-    │   │       └── FBTC_USD_predict_7.pkl
-    │   ├── GC_F
-    │   │   └── 7
-    │   │       └── GC_F_predict_7.pkl
-    │   ├── KTA_USD
-    │   │   └── 7
-    │   │       └── KTA_USD_predict_7.pkl
-    │   ├── MASK_USD
-    │   │   └── 7
-    │   │       └── MASK_USD_predict_7.pkl
-    │   ├── models_info
-    │   │   └── modeller.json
-    │   ├── MOVE32452_USD
-    │   │   └── 7
-    │   │       └── MOVE32452_USD_predict_7.pkl
-    │   ├── OCEAN_USD
-    │   │   └── 7
-    │   │       └── OCEAN_USD_predict_7.pkl
-    │   ├── RARI_USD
-    │   │   └── 7
-    │   │       └── RARI_USD_predict_7.pkl
-    │   ├── RUNE_USD
-    │   │   └── 7
-    │   │       └── RUNE_USD_predict_7.pkl
-    │   ├── SLND_USD
-    │   │   └── 7
-    │   │       └── SLND_USD_predict_7.pkl
-    │   ├── STX_USD
-    │   │   └── 7
-    │   │       └── STX_USD_predict_7.pkl
-    │   ├── SYN_USD
-    │   │   └── 7
-    │   │       └── SYN_USD_predict_7.pkl
-    │   ├── TEL_USD
-    │   │   └── 7
-    │   │       └── TEL_USD_predict_7.pkl
-    │   ├── TRC_USD
-    │   │   └── 7
-    │   │       └── TRC_USD_predict_7.pkl
-    │   ├── WBTC_USD
-    │   │   └── 7
-    │   │       └── WBTC_USD_predict_7.pkl
-    │   ├── WLD_USD
-    │   │   └── 7
-    │   │       └── WLD_USD_predict_7.pkl
-    │   ├── YGG_USD
-    │   │   └── 7
-    │   │       └── YGG_USD_predict_7.pkl
-    │   └── ZETA_USD
-    │       └── 7
-    │           └── ZETA_USD_predict_7.pkl
-    ├── multi_model_training.py
-    ├── notebooks
-    │   └── rf_api3_.ipynb
-    └── predict_with_models.py
-
-59 directories, 41 files
-
-
-59 directories, 42 files
-
-
+├── src
+│   ├── app.py
+│   ├── datamining.py
+│   ├── graphs.py
+│   ├── multi_model_training.py
+│   ├── predict_with_models.py
+│   ├── notebooks
+│   ├── datas
+│   └── models
+├── requirements.txt
+├── README.md
+└── LICENSE
 ```
 
 ---
 
-## 📊 Sonuçlar
+# 📊 Sonuçlar
 
-> ⏳ Modelleme aşaması devam etmektedir. Sonuçlar tamamlandıkça buraya eklenecektir.
+Model performansları değerlendirme aşamasında olup sonuçlar ilerleyen sürümlerde eklenecektir.
 
-| Model | Sembol | Horizon | RMSE | MAE | R² | Dir. Acc. |
-|-------|--------|---------|------|-----|----|-----------|
-| LSTM | BTC-USD | T+1 | — | — | — | — |
-| LSTM | ETH-USD | T+1 | — | — | — | — |
-| XGBoost | BTC-USD | T+1 | — | — | — | — |
-| Random Forest | BTC-USD | T+1 | — | — | — | — |
+Örnek raporlanan metrikler:
 
-> 📈 **Uygulama grafik sonuçları**  
- Örneğin LDO-USD tahmin sonuçlarına bakıldığında bazı günlerde tahminde küçük tutarsızlıklar görülse de, genel gidişat doğru tahmin edilebilmiştir.  
-> Aşağıda model çıktılarına ait örnek bir ekran görüntüsü yer almaktadır.
-
-![Model tahmin grafiği](images/ldo_usd.png)
----
-
-## 📚 Referanslar
-
-- Hochreiter, S. & Schmidhuber, J. (1997). *Long Short-Term Memory*. Neural Computation.
-- Chen, T. & Guestrin, C. (2016). *XGBoost: A Scalable Tree Boosting System*. KDD.
-- Breiman, L. (2001). *Random Forests*. Machine Learning.
-- [Yahoo Finance API Docs](https://finance.yahoo.com)
-- [Binance API Docs](https://binance-docs.github.io/apidocs/)
-- [CoinGecko API Docs](https://www.coingecko.com/en/api/documentation)
+| Model             | Sembol  | Periyot | R² | MSE | MAE |
+| ----------------- | ------- | ------- | -- | --- | --- |
+| Random Forest     | BTC-USD | T+3     | -  | -   | -   |
+| Random Forest     | BTC-USD | T+7     | -  | -   | -   |
+| Gradient Boosting | BTC-USD | T+7     | -  | -   | -   |
 
 ---
 
-## ⚠️ Sorumluluk Reddi
+# 📚 Referanslar
 
-Bu proje **akademik amaçlıdır**. Herhangi bir finansal tavsiye niteliği taşımamaktadır. Kripto para yatırımları yüksek risk içermektedir.
+Breiman, L. (2001). Random Forests. Machine Learning.
+
+Drucker, H. (1997). Improving Regressors Using Boosting Techniques.
+
+Karaboga, D. (2005). An Idea Based on Honey Bee Swarm for Numerical Optimization.
+
+Chen, T., & Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System.
+
+Pedregosa, F. et al. (2011). Scikit-Learn: Machine Learning in Python.
+
+Yahoo Finance Documentation
+
+Binance API Documentation
+
+CoinGecko API Documentation
+
+Streamlit Documentation
+
+Backtrader Documentation
 
 ---
 
-<div align="center">
-  <sub>Veri Madenciliği Lisans Projesi · Nisan 2026</sub>
-</div>
+# ⚠️ Sorumluluk Reddi
+
+Bu çalışma tamamen akademik amaçlı hazırlanmıştır.
+
+Üretilen tahminler yatırım tavsiyesi değildir. Kripto para piyasaları yüksek risk içerir ve gerçek yatırım kararları için kullanılmamalıdır.
+
+---
+
