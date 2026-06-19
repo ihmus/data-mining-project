@@ -359,15 +359,16 @@ X_train, X_test, y_train, y_test = train_test_split(
 
 # 📊 Sonuçlar
 
-Model performansları değerlendirme aşamasında olup sonuçlar ilerleyen sürümlerde eklenecektir.
+> 📈 **Uygulama Grafik Sonuçları**
+>
+> Örneğin **LDO-USD** tahmin sonuçları incelendiğinde, bazı günlerde tahminlerde küçük sapmalar görülse de model genel fiyat trendini başarılı şekilde takip edebilmektedir.
+>
+> Aşağıda model tarafından üretilen tahmin sonuçlarına ait örnek bir ekran görüntüsü yer almaktadır.
 
-Örnek raporlanan metrikler:
+![LDO-USD Tahmin Sonuçları](images/ldo_usd.png)
 
-| Model             | Sembol  | Periyot | R² | MSE | MAE |
-| ----------------- | ------- | ------- | -- | --- | --- |
-| Random Forest     | BTC-USD | T+3     | -  | -   | -   |
-| Random Forest     | BTC-USD | T+7     | -  | -   | -   |
-| Gradient Boosting | BTC-USD | T+7     | -  | -   | -   |
+**Şekil 1.** LDO-USD için gerçek fiyat ve model tahminlerinin karşılaştırılması. Mavi çizgi gerçek fiyatı, turuncu çizgi model tahminini, yeşil (▲) ve kırmızı (▼) işaretler ise simülasyon sırasında oluşan alım ve satım sinyallerini göstermektedir.
+
 
 ---
 
