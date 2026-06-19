@@ -77,9 +77,9 @@ Bu kapsamda aşağıdaki tahmin ufukları incelenmektedir:
 | Keşifsel Veri Analizi (EDA)       | ✅     |
 | Öznitelik Mühendisliği            | ✅     |
 | Model Eğitimi                     | ✅     |
-| Performans Değerlendirme          | ⏳     |
-| Simülasyon ve Görselleştirme      | ⏳     |
-| Sonuç ve Raporlama                | ⏳     |
+| Performans Değerlendirme          | ✅     |
+| Simülasyon ve Görselleştirme      | ✅     |
+| Sonuç ve Raporlama                | ✅     |
 
 ---
 
