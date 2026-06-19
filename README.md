@@ -168,7 +168,7 @@ jupyter>=1.0.0
 ### 1. Veri Toplama
 
 ```bash
-python scraper.py
+python datamining.py
 ```
 
 Tüm semboller için veri çekilir ve `optimized_financial_data/comprehensive_market_data_2000_days.csv` dosyasına kaydedilir.
