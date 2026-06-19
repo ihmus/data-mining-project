@@ -329,6 +329,64 @@ def grafik_olustur(sembol, gun, dates, y_pred, y_gercek, metrics, test_modu) -> 
     fig.tight_layout(pad=1.8)
     return fig
 
+def tahmin_grafik_sadece(sembol, gun, dates, y_pred, islem_listesi) -> plt.Figure:
+    """
+    Sadece model tahminlerini ve al/sat işaretlerini gösteren grafik.
+    """
+    x = np.arange(len(dates))
+    fig, ax = plt.subplots(figsize=(12, 5), dpi=130)
+    fig.patch.set_facecolor("#0d1117")
+    ax.set_facecolor("#161b22")
+
+    ax.plot(x, y_pred, color="#f0883e", linewidth=2.2, label="Model Tahmini", zorder=3)
+    ax.fill_between(x, y_pred, alpha=0.08, color="#f0883e")
+
+    # Günlük % değişim etiketleri
+    delta_pred = yuzde_degisim(y_pred)
+    for i, (xi, yi, delta) in enumerate(zip(x, y_pred, delta_pred)):
+        if np.isnan(delta):
+            label, color = f"{yi:.2f}", "#f0883e"
+        else:
+            sign = "+" if delta >= 0 else ""
+            label = f"{yi:.2f}\n{sign}{delta:.1f}%"
+            color = "#3fb950" if delta >= 0 else "#f85149"
+        ax.annotate(label, (xi, yi), fontsize=6.5, color=color,
+                    ha="center", va="bottom", xytext=(0, 5),
+                    textcoords="offset points", multialignment="center")
+
+    # Al/Sat işaretleri
+    for islem in islem_listesi:
+        idx = islem["idx"]
+        if idx >= len(y_pred):
+            continue
+        tahmin_degeri = y_pred[idx]
+        if islem["tur"] == "ALIM":
+            ax.scatter(idx, tahmin_degeri, color="#3fb950", s=100, zorder=10,
+                       marker="^", edgecolor="white", linewidth=0.5)
+            ax.annotate(f"AL\n${tahmin_degeri:.2f}", (idx, tahmin_degeri),
+                        fontsize=7, color="#3fb950", ha="center", va="bottom",
+                        xytext=(0, 10), textcoords="offset points")
+        else:
+            ax.scatter(idx, tahmin_degeri, color="#f85149", s=100, zorder=10,
+                       marker="v", edgecolor="white", linewidth=0.5)
+            ax.annotate(f"SAT\n${tahmin_degeri:.2f}", (idx, tahmin_degeri),
+                        fontsize=7, color="#f85149", ha="center", va="top",
+                        xytext=(0, -10), textcoords="offset points")
+
+    ax.set_title(f"{sembol}  ·  {gun} Günlük Model Tahminleri ve Sinyaller",
+                 color="#f0f6fc", fontsize=11, fontweight="600", pad=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(dates, rotation=45, ha="right", fontsize=7.5, color="#8b949e")
+    ax.tick_params(axis="y", colors="#8b949e", labelsize=8)
+    ax.spines[:].set_color("#21262d")
+    ax.grid(True, color="#21262d", linewidth=0.6, linestyle="--")
+    ax.set_xlabel("Tarih", color="#8b949e", fontsize=9)
+    ax.set_ylabel("Fiyat", color="#8b949e", fontsize=9)
+    ax.legend(fontsize=8.5, facecolor="#161b22", edgecolor="#21262d", labelcolor="#c9d1d9")
+
+    fig.tight_layout()
+    return fig
+
 # ── Alım-Satım Simülatörü ─────────────────────────────────────────────────────
 
 def run_simulation(
@@ -459,6 +517,10 @@ def run_simulation(
     bh_son     = (initial_balance / ilk_fiyat) * son_fiyat
     bh_getiri  = (bh_son - initial_balance) / initial_balance * 100
 
+    # Drawdown hesaplama
+    peak = max(portfoy_gecmisi) if portfoy_gecmisi else initial_balance
+    drawdown = (peak - son_portfoy) / peak * 100 if peak > 0 else 0.0
+
     return {
         "hata": None,
         "tarihler": tarihler,
@@ -475,7 +537,83 @@ def run_simulation(
         "bh_son_deger": bh_son,
         "gercek_fiyatlar": test_df[sembol].iloc[:n_test - trade_horizon].tolist(),
         "initial_balance": initial_balance,
+        "drawdown": drawdown,
     }
+
+# ── Periyot Karşılaştırma ────────────────────────────────────────────────────
+
+def periyot_karsilastirma(df: pd.DataFrame, sembol: str, test_days: int,
+                          trade_horizon: int, initial_balance: float) -> dict:
+    """
+    Tüm periyotlar (3,7,12,15,30) için simülasyon çalıştırır.
+    Sonuçları ve grafik için verileri döndürür.
+    """
+    periods = [3, 7, 12, 15, 30]
+    results = {}
+    errors = []
+
+    for period in periods:
+        # Test için gün sayısı period'dan az olmamalı, en az period kadar olmalı
+        if test_days < period:
+            errors.append(f"Test günü ({test_days}) {period} günlük model için yetersiz. En az {period} olmalı.")
+            continue
+
+        sim = run_simulation(
+            df=df,
+            sembol=sembol,
+            model_gun=period,
+            trade_horizon=trade_horizon,
+            test_days=test_days,
+            initial_balance=initial_balance
+        )
+        if sim.get("hata"):
+            errors.append(f"{period} gün: {sim['hata']}")
+            results[period] = None
+        else:
+            results[period] = {
+                "net_kar": sim["net_kar"],
+                "getiri_yuzdesi": sim["getiri_yuzdesi"],
+                "islem_sayisi": sim["toplam_islem"],
+                "kazanma_orani": sim["kazanma_orani"],
+            }
+
+    return {"results": results, "errors": errors}
+
+def karsilastirma_grafik_olustur(results: dict, baslangic_bakiye: float, sembol: str = "", test_days: int = 0) -> plt.Figure:
+    """
+    Periyot bazında net kar/zarar çubuk grafiği oluşturur.
+    """
+    periods = sorted([p for p, v in results.items() if v is not None])
+    if not periods:
+        return None
+
+    net_karlar = [results[p]["net_kar"] for p in periods]
+
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=130)
+    fig.patch.set_facecolor("#0d1117")
+    ax.set_facecolor("#161b22")
+
+    colors = ["#3fb950" if x >= 0 else "#f85149" for x in net_karlar]
+    bars = ax.bar(periods, net_karlar, color=colors, edgecolor="#21262d", linewidth=1.2)
+
+    # Değer etiketleri
+    for bar, val in zip(bars, net_karlar):
+        ax.text(bar.get_x() + bar.get_width()/2,
+                bar.get_height() + (0.05 * max(abs(min(net_karlar)), abs(max(net_karlar))) + 1),
+                f"{val:,.2f} $",
+                ha="center", va="bottom", color="#c9d1d9", fontsize=9, fontweight="bold")
+
+    ax.axhline(0, color="#484f58", linewidth=1.2, linestyle="--")
+    ax.set_xlabel("Tahmin Periyodu (gün)", color="#8b949e", fontsize=10)
+    ax.set_ylabel("Net Kar / Zarar (USD)", color="#8b949e", fontsize=10)
+    ax.set_title(f"Farklı Periyotlar İçin Simülasyon Sonuçları\n(Sembol: {sembol}, Test Günü: {test_days})",
+                 color="#f0f6fc", fontsize=11, fontweight="600")
+    ax.tick_params(colors="#8b949e", labelsize=8)
+    ax.spines[:].set_color("#21262d")
+    ax.grid(axis="y", color="#21262d", linewidth=0.5, linestyle="--")
+
+    fig.tight_layout()
+    return fig
 
 # ── Simülasyon grafiği ────────────────────────────────────────────────────────
 
@@ -663,6 +801,8 @@ for key, val in [
     ("result_ready", False), ("fig", None), ("metrics", {}), ("hata", None),
     ("sembol", "BTC-USD"), ("gun", 7), ("test_modu", True),
     ("sim_result_ready", False), ("sim_fig", None), ("sim_sonuc", None),
+    ("tahmin_fig", None), ("tahmin_fig_sadece", None),
+    ("karsilastirma_fig", None), ("karsilastirma_results", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
@@ -721,6 +861,21 @@ with st.sidebar:
             "⚠️ Simülatör için Test Modunu açın.</div>",
             unsafe_allow_html=True,
         )
+
+    # ── Periyot Karşılaştırma Butonu ──────────────────────────────────────
+    st.markdown("<hr style='border-color:#21262d;margin:0.5rem 0;'>", unsafe_allow_html=True)
+    kar_buton = st.button(
+        "📊 Tüm Periyotları Karşılaştır",
+        use_container_width=True,
+        disabled=not test_modu_input,
+        help="3, 7, 12, 15, 30 günlük modelleri aynı test verisiyle simüle eder ve karşılaştırma grafiği oluşturur."
+    )
+    if not test_modu_input:
+        st.markdown(
+            "<div style='font-size:0.75rem;color:#484f58;margin-top:0.3rem;'>⚠️ Karşılaştırma için Test Modunu açın.</div>",
+            unsafe_allow_html=True,
+        )
+
     st.markdown("<hr style='border-color:#21262d;margin:1rem 0;'>", unsafe_allow_html=True)
     st.markdown(
         "<div style='font-size:0.72rem;color:#484f58;margin-top:1rem;line-height:1.6;'>"
@@ -804,11 +959,83 @@ if sim_calistir and data_tamam and test_modu_input:
             trade_horizon=trade_horizon_input, test_days=gun_input,
             initial_balance=baslangic_bakiye,
         )
+
     if sim_sonuc.get("hata"):
         st.session_state.update({"hata": sim_sonuc["hata"], "sim_result_ready": False})
     else:
+        # 1. Mevcut simülasyon grafiği (portföy, gerçek fiyat, karşılaştırma)
         sim_fig = sim_grafik_olustur(sim_sonuc)
-        st.session_state.update({"sim_fig": sim_fig, "sim_sonuc": sim_sonuc, "hata": None, "sim_result_ready": True})
+
+        # 2. Tahmin grafiğini oluştur ve üzerine sinyalleri ekle (gerçek + tahmin birlikte)
+        dates, y_pred, y_gercek, metrics, hata = tahmin_yap(df, sembol, gun_input, True)
+        if hata:
+            tahmin_fig = None
+            tahmin_fig_sadece = None
+        else:
+            # Gerçek + tahmin grafiği
+            tahmin_fig = grafik_olustur(sembol, gun_input, dates, y_pred, y_gercek, metrics, True)
+            # İşaret ekle (tahmin çizgisi üzerine)
+            ax = tahmin_fig.axes[0]
+            islem_listesi = sim_sonuc["islem_listesi"]
+            for islem in islem_listesi:
+                idx = islem["idx"]
+                if idx < len(y_pred):
+                    tahmin_degeri = y_pred[idx]
+                    if islem["tur"] == "ALIM":
+                        ax.scatter(idx, tahmin_degeri, color="#3fb950", s=100, zorder=10, marker="^", edgecolor="white", linewidth=0.5)
+                        ax.annotate(f"AL\n${tahmin_degeri:.2f}", (idx, tahmin_degeri),
+                                    fontsize=7, color="#3fb950", ha="center", va="bottom",
+                                    xytext=(0, 10), textcoords="offset points")
+                    else:
+                        ax.scatter(idx, tahmin_degeri, color="#f85149", s=100, zorder=10, marker="v", edgecolor="white", linewidth=0.5)
+                        ax.annotate(f"SAT\n${tahmin_degeri:.2f}", (idx, tahmin_degeri),
+                                    fontsize=7, color="#f85149", ha="center", va="top",
+                                    xytext=(0, -10), textcoords="offset points")
+            tahmin_fig.canvas.draw()
+
+            # Sadece tahmin grafiği (gerçek yok)
+            tahmin_fig_sadece = tahmin_grafik_sadece(sembol, gun_input, dates, y_pred, sim_sonuc["islem_listesi"])
+
+        st.session_state.update({
+            "sim_fig": sim_fig,
+            "sim_sonuc": sim_sonuc,
+            "tahmin_fig": tahmin_fig,
+            "tahmin_fig_sadece": tahmin_fig_sadece,
+            "hata": None,
+            "sim_result_ready": True,
+        })
+
+# ── Karşılaştırma ─────────────────────────────────────────────────────────────
+if kar_buton and data_tamam and test_modu_input:
+    sembol = sembol_input.strip().upper()
+    test_gunu = max(gun_input, 30)
+    st.session_state.update({"sembol": sembol, "gun": gun_input, "test_modu": True})
+
+    with st.spinner("Tüm periyotlar için simülasyon çalıştırılıyor..."):
+        comp = periyot_karsilastirma(
+            df=df,
+            sembol=sembol,
+            test_days=test_gunu,
+            trade_horizon=trade_horizon_input,
+            initial_balance=baslangic_bakiye
+        )
+
+        if comp["errors"]:
+            for err in comp["errors"]:
+                st.warning(err)
+
+        if comp["results"]:
+            fig = karsilastirma_grafik_olustur(comp["results"], baslangic_bakiye, sembol, test_gunu)
+            if fig:
+                st.session_state.update({
+                    "karsilastirma_fig": fig,
+                    "karsilastirma_results": comp["results"],
+                    "hata": None
+                })
+            else:
+                st.error("Hiçbir periyotta geçerli sonuç elde edilemedi.")
+        else:
+            st.error("Hiçbir periyot çalıştırılamadı. Hata mesajlarını kontrol edin.")
 
 # ── Hata göster ───────────────────────────────────────────────────────────────
 if st.session_state.get("hata"):
@@ -875,7 +1102,7 @@ if st.session_state.get("result_ready") and st.session_state.get("fig"):
             st.session_state.update({"result_ready": False, "fig": None, "metrics": {}})
             st.rerun()
 
-elif not calistir and data_tamam and not st.session_state.get("result_ready") and not st.session_state.get("sim_result_ready"):
+elif not calistir and data_tamam and not st.session_state.get("result_ready") and not st.session_state.get("sim_result_ready") and not st.session_state.get("karsilastirma_fig"):
     st.markdown(
         "<div style='text-align:center;padding:4rem 2rem;color:#484f58;'>"
         "<div style='font-size:3rem;margin-bottom:1rem;'>📊</div>"
@@ -903,6 +1130,7 @@ if st.session_state.get("sim_result_ready") and st.session_state.get("sim_fig"):
     toplam_islem   = sim_sonuc["toplam_islem"]
     son_portfoy    = sim_sonuc["son_portfoy"]
     init_bal       = sim_sonuc["initial_balance"]
+    drawdown       = sim_sonuc.get("drawdown", 0.0)
 
     kar_sinif = "sim-card-profit" if net_kar >= 0 else "sim-card-loss"
     kar_renk  = "#3fb950" if net_kar >= 0 else "#f85149"
@@ -910,7 +1138,8 @@ if st.session_state.get("sim_result_ready") and st.session_state.get("sim_fig"):
     kz_renk   = "#3fb950" if kazanma_orani >= 50 else "#f0883e"
     fark       = getiri_yuz - bh_getiri
 
-    s1, s2, s3, s4 = st.columns(4)
+    # 5 metrik kartı (drawdown eklendi)
+    s1, s2, s3, s4, s5 = st.columns(5)
     with s1:
         st.markdown(
             f"<div class='{kar_sinif}'>"
@@ -943,6 +1172,15 @@ if st.session_state.get("sim_result_ready") and st.session_state.get("sim_fig"):
             f"<div class='metric-sub'>Kârlı satış yüzdesi</div></div>",
             unsafe_allow_html=True,
         )
+    with s5:
+        drawdown_renk = "#f0883e"
+        st.markdown(
+            f"<div class='sim-card-neutral'>"
+            f"<div class='metric-label'>Maks. Geri Çekilme</div>"
+            f"<div class='metric-value' style='color:{drawdown_renk};'>{drawdown:.2f}%</div>"
+            f"<div class='metric-sub'>Zirveden düşüş</div></div>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown("<div style='margin-top:1.2rem;'></div>", unsafe_allow_html=True)
 
@@ -954,17 +1192,73 @@ if st.session_state.get("sim_result_ready") and st.session_state.get("sim_fig"):
     else:
         st.markdown("<div class='info-box'>🔄 Strateji ve Buy & Hold eşit performans gösterdi.</div>", unsafe_allow_html=True)
 
-    # Grafik
+    # Simülasyon grafiği (portföy, gerçek fiyat, karşılaştırma)
     st.pyplot(sim_fig, use_container_width=True)
 
-    # ── İşlem detay tablosu ───────────────────────────────────────────────────
+    # ── Model Tahmin Grafiği (Gerçek + Tahmin) ──────────────────────────────
+    if st.session_state.get("tahmin_fig"):
+        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+        st.markdown("<h2 class='section-title'>📈 Gerçek Fiyat ve Model Tahmini (Sinyallerle)</h2>", unsafe_allow_html=True)
+        st.pyplot(st.session_state["tahmin_fig"], use_container_width=True)
+
+        col1, col2, _ = st.columns([1, 1, 4])
+        with col1:
+            st.download_button(
+                "⬇ PNG İndir", fig_to_bytes(st.session_state["tahmin_fig"], "png"),
+                f"{sembol_klasor_adi(st.session_state['sembol'])}_tahmin_sinyal.png", "image/png",
+                use_container_width=True,
+            )
+        with col2:
+            st.download_button(
+                "⬇ PDF İndir", fig_to_bytes(st.session_state["tahmin_fig"], "pdf"),
+                f"{sembol_klasor_adi(st.session_state['sembol'])}_tahmin_sinyal.pdf", "application/pdf",
+                use_container_width=True,
+            )
+
+    # ── Sadece Model Tahmin Grafiği (Gerçek yok) ────────────────────────────
+    if st.session_state.get("tahmin_fig_sadece"):
+        st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+        st.markdown("<h2 class='section-title'>📈 Yalnızca Model Tahminleri (Sinyallerle)</h2>", unsafe_allow_html=True)
+        st.pyplot(st.session_state["tahmin_fig_sadece"], use_container_width=True)
+
+        col1, col2, _ = st.columns([1, 1, 4])
+        with col1:
+            st.download_button(
+                "⬇ PNG İndir", fig_to_bytes(st.session_state["tahmin_fig_sadece"], "png"),
+                f"{sembol_klasor_adi(st.session_state['sembol'])}_sadece_tahmin.png", "image/png",
+                use_container_width=True,
+            )
+        with col2:
+            st.download_button(
+                "⬇ PDF İndir", fig_to_bytes(st.session_state["tahmin_fig_sadece"], "pdf"),
+                f"{sembol_klasor_adi(st.session_state['sembol'])}_sadece_tahmin.pdf", "application/pdf",
+                use_container_width=True,
+            )
+
+    # ── İşlem detay tablosu (Açılabilir) ─────────────────────────────────────
     if sim_sonuc.get("islem_listesi"):
         st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
-        st.markdown("<h2 class='section-title'>📋 İşlem Detayları</h2>", unsafe_allow_html=True)
-        st.markdown(islem_tablosu_html(sim_sonuc["islem_listesi"]), unsafe_allow_html=True)
+        
+        # ALIM ve SATIM tarihlerinin özet tablosu
+        alim_tarihleri = [i["tarih"] for i in sim_sonuc["islem_listesi"] if i["tur"] == "ALIM"]
+        satim_tarihleri = [i["tarih"] for i in sim_sonuc["islem_listesi"] if i["tur"] == "SATIM"]
+        
+        if alim_tarihleri or satim_tarihleri:
+            st.markdown("<h3 style='color:#f0f6fc;font-size:0.95rem;font-weight:600;margin-bottom:0.3rem;'>📅 Alım ve Satım Tarihleri Özeti</h3>", unsafe_allow_html=True)
+            cols = st.columns(2)
+            with cols[0]:
+                alim_str = ", ".join(alim_tarihleri) if alim_tarihleri else "Hiç alım yok"
+                st.markdown(f"<div style='background:#0d2a0d;border-left:3px solid #3fb950;padding:0.5rem 0.8rem;border-radius:4px;color:#c9d1d9;font-size:0.85rem;'><span style='color:#3fb950;font-weight:600;'>▲ ALIM:</span> {alim_str}</div>", unsafe_allow_html=True)
+            with cols[1]:
+                satim_str = ", ".join(satim_tarihleri) if satim_tarihleri else "Hiç satım yok"
+                st.markdown(f"<div style='background:#2a0d0d;border-left:3px solid #f85149;padding:0.5rem 0.8rem;border-radius:4px;color:#c9d1d9;font-size:0.85rem;'><span style='color:#f85149;font-weight:600;'>▼ SATIM:</span> {satim_str}</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-bottom:0.5rem;'></div>", unsafe_allow_html=True)
+        
+        with st.expander("📋 Tüm İşlem Detaylarını Göster (Aç/Kapat)"):
+            st.markdown(islem_tablosu_html(sim_sonuc["islem_listesi"]), unsafe_allow_html=True)
         st.markdown("<div style='margin-bottom:1rem;'></div>", unsafe_allow_html=True)
 
-    # İndirme butonları
+    # İndirme butonları (simülasyon grafiği için)
     sdl1, sdl2, sdl3 = st.columns([1, 1, 4])
     with sdl1:
         st.download_button(
@@ -980,5 +1274,56 @@ if st.session_state.get("sim_result_ready") and st.session_state.get("sim_fig"):
         )
     with sdl3:
         if st.button("✕ Simülasyonu Kapat"):
-            st.session_state.update({"sim_result_ready": False, "sim_fig": None, "sim_sonuc": None})
+            st.session_state.update({
+                "sim_result_ready": False,
+                "sim_fig": None,
+                "sim_sonuc": None,
+                "tahmin_fig": None,
+                "tahmin_fig_sadece": None,
+            })
             st.rerun()
+
+# ── Karşılaştırma Sonuçları ──────────────────────────────────────────────────
+if st.session_state.get("karsilastirma_fig"):
+    st.markdown("<hr class='section-divider'>", unsafe_allow_html=True)
+    st.markdown("<h2 class='section-title'>📊 Periyot Karşılaştırması</h2>", unsafe_allow_html=True)
+
+    fig = st.session_state["karsilastirma_fig"]
+    st.pyplot(fig, use_container_width=True)
+
+    # Sonuçları tablo olarak göster
+    results = st.session_state.get("karsilastirma_results", {})
+    if results:
+        df_tablo = pd.DataFrame.from_dict(results, orient="index")
+        df_tablo.index.name = "Periyot"
+        df_tablo = df_tablo.rename(columns={
+            "net_kar": "Net Kar (USD)",
+            "getiri_yuzdesi": "Getiri (%)",
+            "islem_sayisi": "İşlem Sayısı",
+            "kazanma_orani": "Kazanma Oranı (%)"
+        })
+        st.dataframe(df_tablo.style.format({
+            "Net Kar (USD)": "{:,.2f}",
+            "Getiri (%)": "{:+.2f}",
+            "İşlem Sayısı": "{:.0f}",
+            "Kazanma Oranı (%)": "{:.1f}"
+        }).background_gradient(subset=["Net Kar (USD)"], cmap="RdYlGn", vmax=df_tablo["Net Kar (USD)"].max(), vmin=df_tablo["Net Kar (USD)"].min()))
+
+    # İndirme butonları
+    col1, col2, _ = st.columns([1, 1, 4])
+    with col1:
+        st.download_button(
+            "⬇ PNG İndir", fig_to_bytes(fig, "png"),
+            f"{sembol_klasor_adi(st.session_state['sembol'])}_periyot_karsilastirma.png", "image/png",
+            use_container_width=True,
+        )
+    with col2:
+        st.download_button(
+            "⬇ PDF İndir", fig_to_bytes(fig, "pdf"),
+            f"{sembol_klasor_adi(st.session_state['sembol'])}_periyot_karsilastirma.pdf", "application/pdf",
+            use_container_width=True,
+        )
+
+    if st.button("✕ Karşılaştırmayı Kapat"):
+        st.session_state.update({"karsilastirma_fig": None, "karsilastirma_results": None})
+        st.rerun()
