@@ -336,18 +336,110 @@ Kronolojik Bölme (data leakage önlenir):
 ## 📁 Proje Yapısı
 
 ```
-├── data
+.
+├── images
+│   └── ldo_usd.png
 ├── LICENSE
-├── models
 ├── README.md
 ├── results
 │   ├── docs
-│   │   └── Ara Rapor.pdf
+│   │   ├── Ara Rapor.pdf
+│   │   ├── Final Raporu.pdf
+│   │   └── KriptoPara_Fiyat_Tahmini_Sunum.pptx
 │   ├── reports
 │   └── visuals
-└── src
-    │
-    └── notebooks
+├── src
+│   ├── app.py
+│   ├── datamining.py
+│   ├── datas
+│   │   └── comprehensive_market_data_200_plus_features.csv
+│   ├── graphs.py
+│   ├── model_karsilastirma.py
+│   ├── models
+│   │   ├── 0XBTC_USD
+│   │   │   └── 7
+│   │   │       └── 0XBTC_USD_predict_7.pkl
+│   │   ├── AXL17799_USD
+│   │   │   └── 7
+│   │   │       └── AXL17799_USD_predict_7.pkl
+│   │   ├── BERA_USD
+│   │   │   └── 7
+│   │   │       └── BERA_USD_predict_7.pkl
+│   │   ├── BTC_USD
+│   │   │   ├── 12
+│   │   │   │   └── BTC_USD_predict_12.pkl
+│   │   │   ├── 15
+│   │   │   │   └── BTC_USD_predict_15.pkl
+│   │   │   ├── 3
+│   │   │   │   └── BTC_USD_predict_3.pkl
+│   │   │   ├── 30
+│   │   │   │   └── BTC_USD_predict_30.pkl
+│   │   │   └── 7
+│   │   │       └── BTC_USD_predict_7.pkl
+│   │   ├── CTX_USD
+│   │   │   └── 7
+│   │   │       └── CTX_USD_predict_7.pkl
+│   │   ├── FBTC_USD
+│   │   │   └── 7
+│   │   │       └── FBTC_USD_predict_7.pkl
+│   │   ├── GC_F
+│   │   │   └── 7
+│   │   │       └── GC_F_predict_7.pkl
+│   │   ├── KTA_USD
+│   │   │   └── 7
+│   │   │       └── KTA_USD_predict_7.pkl
+│   │   ├── MASK_USD
+│   │   │   └── 7
+│   │   │       └── MASK_USD_predict_7.pkl
+│   │   ├── models_info
+│   │   │   └── modeller.json
+│   │   ├── MOVE32452_USD
+│   │   │   └── 7
+│   │   │       └── MOVE32452_USD_predict_7.pkl
+│   │   ├── OCEAN_USD
+│   │   │   └── 7
+│   │   │       └── OCEAN_USD_predict_7.pkl
+│   │   ├── RARI_USD
+│   │   │   └── 7
+│   │   │       └── RARI_USD_predict_7.pkl
+│   │   ├── RUNE_USD
+│   │   │   └── 7
+│   │   │       └── RUNE_USD_predict_7.pkl
+│   │   ├── SLND_USD
+│   │   │   └── 7
+│   │   │       └── SLND_USD_predict_7.pkl
+│   │   ├── STX_USD
+│   │   │   └── 7
+│   │   │       └── STX_USD_predict_7.pkl
+│   │   ├── SYN_USD
+│   │   │   └── 7
+│   │   │       └── SYN_USD_predict_7.pkl
+│   │   ├── TEL_USD
+│   │   │   └── 7
+│   │   │       └── TEL_USD_predict_7.pkl
+│   │   ├── TRC_USD
+│   │   │   └── 7
+│   │   │       └── TRC_USD_predict_7.pkl
+│   │   ├── WBTC_USD
+│   │   │   └── 7
+│   │   │       └── WBTC_USD_predict_7.pkl
+│   │   ├── WLD_USD
+│   │   │   └── 7
+│   │   │       └── WLD_USD_predict_7.pkl
+│   │   ├── YGG_USD
+│   │   │   └── 7
+│   │   │       └── YGG_USD_predict_7.pkl
+│   │   └── ZETA_USD
+│   │       └── 7
+│   │           └── ZETA_USD_predict_7.pkl
+│   ├── multi_model_training.py
+│   ├── notebooks
+│   │   └── rf_api3_.ipynb
+│   └── predict_with_models.py
+└── tree.txt
+
+59 directories, 42 files
+
 
 ```
 
