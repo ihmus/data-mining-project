@@ -246,14 +246,14 @@ Her gün:
 
 ## Örnek Görselleştirme
 
-Aşağıda LDO-USD için model tahmin çıktılarından örnek bir ekran görüntüsü yer almaktadır.
+Aşağıda BTC-USD için model tahmin çıktılarından örnek bir ekran görüntüsü yer almaktadır.
 
 <p align="center">
-  <img src="images/ldo_usd.png" width="900">
+  <img src="images/btc_usd.png" width="900">
 </p>
 
 <p align="center">
-<b>Şekil 1.</b> LDO-USD için gerçek fiyat ve model tahminlerinin karşılaştırılması.
+<b>Şekil 1.</b> BTC-USD için gerçek fiyat ve model tahminlerinin karşılaştırılması.
 Mavi çizgi gerçek fiyatı, turuncu çizgi model tahminini, yeşil (▲) ve kırmızı (▼) işaretler ise simülasyon sırasında oluşan alım ve satım sinyallerini göstermektedir.
 </p>
 
